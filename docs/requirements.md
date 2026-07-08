@@ -1,6 +1,6 @@
 # Requirements: Photos-to-Amazon-Photos Preparer
 
-Status: Draft (v0.2) — under review
+Status: Draft (v0.3) — under review
 Phase: 1 of 3 (Requirements → Design → Tasks)
 
 ## 1. Purpose
@@ -266,28 +266,25 @@ folder" and avoids taking on upload-reliability and ToS risk.
 5. ~~Photos.app running concurrently?~~ **Resolved:** documented as a hard precondition —
    Photos.app MUST be quit before running the tool ([NFR-6](#6-non-functional-requirements)).
    Not pursuing runtime detection/enforcement as a requirement for v1; may revisit in design.
+2. ~~Exact `_undated/` detection rule?~~ **Resolved in [design doc](design.md)**: a heuristic
+   comparing `date` to `date_added` (no API-provided "is this a real capture date" flag exists
+   upstream), pending empirical validation — see design doc Section 5.2 and the tasks doc's
+   compatibility/validation spike.
+3. ~~Filename/collision scheme?~~ **Resolved in [design doc](design.md)**: deterministic
+   `date_taken + original stem + short UUID fragment` naming, with a `component` column added
+   to the tracking schema to represent a Live Photo's two staged locations — see design doc
+   Section 4 and 5.4.
+6. ~~Upload destination for `live_photo/`?~~ **Resolved:** manual/undecided for v1. `live_photo/`
+   is staged only; no automated upload handoff (Amazon Photos or S3/Glacier) is designed for it.
+   This may change in a future revision once a destination is chosen.
 
-**Still open, deferred to the design doc:**
+**Still open, TBD:**
 
-2. **Exact `_undated/` detection rule.** What specifically counts as "not a trustworthy capture
-   date" (e.g., date equals library-added date exactly, or falls before some epoch) needs a
-   short investigative spike against a real library.
-3. **Filename/collision scheme** for FR-5's uniqueness requirement, including how a Live
-   Photo's key image (staged under `photos/`) and full asset (staged under `live_photo/`) are
-   named/linked so they're recognizable as the same underlying asset, and how the tracking
-   schema represents an asset staged to two locations at once (see the `target_relative_path`
-   note in [FR-6](#fr-6-tracking-file)).
-6. **Upload destination for `live_photo/`.** Not yet decided whether Live Photos go to Amazon
-   Photos, S3/Glacier alongside `video/`, or are handled manually. Affects whether
-   [Section 8](#8-amazon-photos-upload-strategy)'s Backup-folder approach needs to point at more
-   than just `photos/`.
-
-**Still open, TBD (not deferred to a specific phase yet):**
-
-4. **osxphotos compatibility** with macOS Tahoe 26.5 and Python 3.14 is not yet fully confirmed
-   upstream as of this writing; a compatibility spike is needed early in implementation, with a
-   fallback plan (e.g., pin an older Python minor version, or a different access method) if it
-   doesn't pan out.
+4. **osxphotos compatibility.** Python 3.14 is confirmed supported upstream (osxphotos 0.76.1
+   declares `requires-python >=3.10,<=3.14`), so that part of the risk is resolved. macOS Tahoe
+   (26.x) support is still only partial upstream as of this writing ("most features work on
+   26.1 but osxphotos does not yet fully support 26.x") — this remains a real risk, addressed
+   via a compatibility spike as the first implementation task (see tasks doc).
 
 ## 10. Future Enhancements (explicitly out of scope for v1)
 
