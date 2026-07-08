@@ -1,20 +1,22 @@
 # Requirements: Photos-to-Amazon-Photos Preparer
 
-Status: Draft (v0.1) — under review
+Status: Draft (v0.2) — under review
 Phase: 1 of 3 (Requirements → Design → Tasks)
 
 ## 1. Purpose
 
-Provide a repeatable, idempotent way to pull photos out of a local macOS **Photos** library
-(Photos v11 / macOS Tahoe 26.5) and stage them — with original metadata intact — in a plain
-directory tree that can then be uploaded to **Amazon Photos**. The tool itself does not need to
-perform the upload; it needs to produce a clean, deduplicated, well-organized "staging" folder
-that an upload mechanism (automated or manual) can consume.
+Provide a repeatable, idempotent way to pull photos, videos, and Live Photos out of a local
+macOS **Photos** library (Photos v11 / macOS Tahoe 26.5) and stage them — with original
+metadata intact — into a plain directory tree, split by media type, for onward upload:
+still photos to **Amazon Photos**, videos to **S3/Glacier**. The tool itself does not need to
+perform any upload; it needs to produce a clean, deduplicated, well-organized "staging" folder
+that separate upload mechanisms (automated or manual) can consume.
 
 ## 2. Goals
 
-- G1: Extract the best available version of every photo in a single Photos library into a
-  target directory, preserving embedded metadata (EXIF, GPS/geolocation, capture date, etc.).
+- G1: Extract the best available version of every asset (photo, video, Live Photo) in a single
+  Photos library into a target directory, preserving embedded metadata (EXIF, GPS/geolocation,
+  capture date, etc.).
 - G2: Be safe to re-run repeatedly against the same library/target pair without re-copying
   photos that have already been handled (idempotent).
 - G3: Track, in a single human-readable/editable file, what has been processed, so that staged
@@ -34,16 +36,21 @@ that an upload mechanism (automated or manual) can consume.
   only at the Photos-asset level (see [FR-8](#fr-8-uniqueness--deduplication)).
 - NG4: No GUI. CLI only.
 - NG5: No concurrent runs against the same target directory (single-writer assumption).
+- NG6: The tool will **not** upload the staged `video/` contents to S3/Glacier. That upload is
+  a separate process outside this tool's scope; this tool only stages video files into a
+  dedicated directory for that separate process to consume.
 
 ## 4. Definitions
 
 | Term | Meaning |
 |---|---|
-| Asset | A single item in the Photos library, identified by a stable, library-scoped UUID. |
+| Asset | A single item in the Photos library, identified by a stable, library-scoped UUID. Can be a photo, a video, or a Live Photo. |
 | Current version | The version of an asset Photos would show/export today — the edited version if the user has edited it, otherwise the original. |
-| Target directory | The root output directory passed on the CLI; staged copies and the tracking file live here. |
+| Live Photo | A Photos asset made of two parts: a still "key" image and a short paired video/motion component. |
+| Key image | The still-image component of a Live Photo — what you'd see if Live Photo motion were turned off. |
+| Target directory | The root output directory passed on the CLI; staged copies and the tracking file live here. Split into media-type subdirectories — see [FR-5](#fr-5-target-directory-structure). |
 | Tracking file | The CSV at the root of the target directory recording what has been processed. |
-| Staged photo | A file copied into the target directory tree, ready for upload. |
+| Staged asset | A file (or set of files, for a Live Photo) copied into the target directory tree, ready for upload. |
 
 ## 5. Functional Requirements
 
@@ -67,7 +74,8 @@ package contents under any circumstances, including on error paths.
 
 For each asset, the tool MUST export the **current version** as Photos.app would show it —
 i.e., the user's edited/adjusted version if one exists, otherwise the original — at full
-resolution (not a thumbnail/preview-quality rendition).
+resolution/quality (not a thumbnail/preview-quality rendition). This applies uniformly to
+photos, videos, and both components of a Live Photo.
 
 ### FR-4: Preserve metadata in the copy
 
@@ -85,32 +93,52 @@ embedded MAY instead be recorded in the tracking file (see [FR-6](#fr-6-tracking
 
 ### FR-5: Target directory structure
 
-Staged files MUST be organized by **capture date**, using the date Photos associates with the
-asset (see [Section 7](#7-date-availability) for how "capture date" is determined and what
-happens when it's unreliable):
+The target directory MUST be split at the top level by media type, since each type is staged
+for a different downstream destination:
 
 ```
 <target_root>/
-  2024/
-    01/
-      <staged files for Jan 2024>
-    05/
-      <staged files for May 2024>
-  2025/
-    ...
-  _undated/
-    <staged files with no reliable capture date>
+  photos/
+    2024/
+      01/
+        <staged still images for Jan 2024>
+      05/
+        <staged still images for May 2024>
+    2025/
+      ...
+    _undated/
+      <staged still images with no reliable capture date>
+  video/
+    2024/
+      ...
+    _undated/
+  live_photo/
+    2024/
+      ...
+    _undated/
   tracking.csv
 ```
 
-- Two-level nesting (`YYYY/MM/`) keeps per-directory file counts manageable for large libraries
-  without creating excessive top-level clutter.
-- The `_undated/` bucket (leading underscore so it sorts to the top, clearly distinct from a
-  year) holds assets for which no reliable capture date could be determined.
-- Filenames within the tree MUST be unique across the whole target directory and MUST be
+- `photos/` — still images: normal photos, plus the **key image** of every Live Photo. This is
+  the directory intended to feed Amazon Photos (see [Section 8](#8-amazon-photos-upload-strategy)).
+- `video/` — standalone video assets. Staged for a separate S3/Glacier upload process
+  ([NG6](#3-non-goals-v1)); not related to the Amazon Photos flow.
+- `live_photo/` — the Live Photo asset in its entirety (i.e., including its motion/video
+  component), kept separate from both `photos/` and `video/` so a Live Photo's key image can be
+  treated as a normal photo while the full Live Photo is preserved intact elsewhere. Its
+  upload destination is not yet decided — see [Section 9](#9-open-questions--assumptions).
+- Within each of `photos/`, `video/`, and `live_photo/`, staged files MUST be organized by
+  **capture date** using the same `YYYY/MM/` + `_undated/` scheme (see
+  [Section 7](#7-date-availability) for how "capture date" is determined and what happens when
+  it's unreliable). Two-level nesting (`YYYY/MM/`) keeps per-directory file counts manageable
+  for large libraries without creating excessive top-level clutter. The `_undated/` bucket
+  (leading underscore so it sorts to the top, clearly distinct from a year) holds assets for
+  which no reliable capture date could be determined.
+- Filenames within each media-type subtree MUST be unique across that subtree and MUST be
   deterministic — the same source asset MUST map to the same target filename across repeated
   runs. The exact naming scheme (e.g., handling of filename collisions, whether to embed a
-  UUID fragment) is a **design-phase decision**, not fixed here.
+  UUID fragment, how a Live Photo's paired files are named/kept together under `live_photo/`)
+  is a **design-phase decision**, not fixed here.
 
 ### FR-6: Tracking file
 
@@ -122,7 +150,7 @@ authoritative record of what has been processed. One row per Photos asset. Propo
 | `photo_uuid` | Photos library's stable UUID for the asset. Primary key. |
 | `source_library_path` | Path to the `.photoslibrary` this asset came from, for audit/debugging across multiple libraries feeding the same target dir. |
 | `original_filename` | Filename as known to Photos. |
-| `target_relative_path` | Path of the staged file, relative to `target_root` (empty if not currently staged). |
+| `target_relative_path` | Path of the staged file, relative to `target_root` (empty if not currently staged). For a Live Photo, which stages to two locations (key image under `photos/`, full asset under `live_photo/`), one column is not sufficient — schema needs a second path column or a second row; exact fix is a design-phase decision (see [Section 9](#9-open-questions--assumptions) item 3). |
 | `date_taken` | ISO 8601 capture date used to place the file (see [Section 7](#7-date-availability)). |
 | `date_source` | `exif` \| `library_added` — whether `date_taken` is a true capture date or a fallback. Makes the "can we guarantee a date" tradeoff auditable. |
 | `date_added_to_library` | When the asset was imported into Photos. |
@@ -130,7 +158,7 @@ authoritative record of what has been processed. One row per Photos asset. Propo
 | `file_size_bytes` | Size of the staged file at copy time. |
 | `checksum_sha256` | Checksum of the staged file, for integrity verification and future dedup work. |
 | `is_edited_version` | Boolean — whether the staged copy is the edited version vs. the original. |
-| `media_type` | `photo` \| `video` \| `live_photo`. Recorded even though v1 only stages still images ([Section 9](#9-open-questions--assumptions)), for forward compatibility. |
+| `media_type` | `photo` \| `video` \| `live_photo`. Determines which top-level subdirectory ([FR-5](#fr-5-target-directory-structure)) the asset is staged under. |
 | `status` | `copied` \| `ignored` \| `error`. Deliberately richer than a plain boolean flag — see [FR-7](#fr-7-idempotent-re-run-behavior). |
 | `ignore_reason` | Free text, populated when `status=ignored` (e.g., "inappropriate", "duplicate", "corrupt source"). |
 | `notes` | Free text, optional. |
@@ -142,8 +170,9 @@ filesystem, keyed by `photo_uuid`. For each asset in the source library:
 
 - If a row exists with `status=copied` and a populated `timestamp_processed`: **skip**. This
   holds regardless of whether the staged file still physically exists in the target directory
-  (it may have been deleted after a successful manual upload to Amazon Photos) — the tracking
-  file, not the filesystem, is the source of truth for "has this been handled."
+  (it may have been deleted after a successful upload to its destination — Amazon Photos for
+  `photos/`, S3/Glacier for `video/`, etc.) — the tracking file, not the filesystem, is the
+  source of truth for "has this been handled."
 - If a row exists with `status=ignored`: **skip**, permanently, until the row is manually
   edited.
 - If a row exists with `status=error`, or no row exists at all: **process** the asset (copy +
@@ -164,7 +193,7 @@ possible later without re-touching the source library.
 
 ### FR-9: Ignore / exclusion workflow
 
-A photo MUST be excludable from staging (e.g., inappropriate content) by setting
+An asset MUST be excludable from staging (e.g., inappropriate content) by setting
 `status=ignored` on its tracking row. For v1, this is done by directly editing `tracking.csv`;
 a dedicated CLI command for marking rows ignored is a candidate future enhancement
 ([Section 10](#10-future-enhancements)).
@@ -185,6 +214,10 @@ assets. The tool MUST print a run summary at the end: counts of copied / already
 - NFR-4: Idempotent and safe to interrupt (Ctrl-C, crash, power loss) at any point without
   requiring manual cleanup before the next run.
 - NFR-5: Read-only with respect to the source library at all times ([FR-2](#fr-2-source-access-is-read-only)).
+- NFR-6: Photos.app MUST be quit before running the tool. Reading the Photos library database
+  while Photos.app is open is not officially supported by Apple, so this is documented as a
+  hard precondition rather than something the tool works around. Whether the tool actively
+  detects and enforces this (vs. relying on documentation alone) is a design-phase decision.
 
 ## 7. Date Availability
 
@@ -209,40 +242,59 @@ Amazon Photos does not offer a public API for uploading. Two automation paths we
    to run unattended and repeatedly.
 2. **Amazon Photos desktop app's built-in "Backup" feature** (Selected). The official desktop
    app can watch a designated folder and automatically upload anything added to it. This tool
-   is designed to hand off cleanly to that feature: point the Backup folder at `target_root`
-   (or a subfolder of it), and newly staged photos are picked up and uploaded without any
+   is designed to hand off cleanly to that feature: point the Backup folder at
+   `<target_root>/photos/`, and newly staged photos are picked up and uploaded without any
    custom upload code. Manual upload via the web UI/app remains a fallback at all times.
+
+This applies to `photos/` only. `video/` is staged for a separate S3/Glacier process, not
+Amazon Photos ([NG6](#3-non-goals-v1)). Where `live_photo/` fits is still open — see
+[Section 9](#9-open-questions--assumptions).
 
 This keeps the tool's responsibility scoped to "produce a correct, deduplicated staging
 folder" and avoids taking on upload-reliability and ToS risk.
 
 ## 9. Open Questions / Assumptions
 
-These need a decision (or explicit confirmation of the stated default) before the design
-phase locks in:
+**Resolved:**
 
-1. **Scope: still images only for v1.** Photos libraries also contain videos and Live Photos
-   (a still + a short video/motion component). Default assumption: v1 stages the still-image
-   component only; standalone videos are out of scope. `media_type` is still recorded in the
-   tracking schema so this can be extended later without a schema migration. **Please confirm
-   or correct.**
+1. ~~Scope: still images only for v1?~~ **Resolved:** v1 handles all three media types, split
+   into separate top-level directories ([FR-5](#fr-5-target-directory-structure)): still photos
+   (`photos/`, feeding Amazon Photos), videos (`video/`, feeding a separate S3/Glacier process,
+   out of scope per [NG6](#3-non-goals-v1)), and Live Photos in their entirety (`live_photo/`,
+   upload destination still open — see below). A Live Photo's key/still image is additionally
+   staged into `photos/` like a normal photo.
+5. ~~Photos.app running concurrently?~~ **Resolved:** documented as a hard precondition —
+   Photos.app MUST be quit before running the tool ([NFR-6](#6-non-functional-requirements)).
+   Not pursuing runtime detection/enforcement as a requirement for v1; may revisit in design.
+
+**Still open, deferred to the design doc:**
+
 2. **Exact `_undated/` detection rule.** What specifically counts as "not a trustworthy capture
    date" (e.g., date equals library-added date exactly, or falls before some epoch) needs a
-   short investigative spike against a real library — deferred to the design doc.
-3. **Filename/collision scheme** for FR-5's uniqueness requirement — deferred to the design doc.
+   short investigative spike against a real library.
+3. **Filename/collision scheme** for FR-5's uniqueness requirement, including how a Live
+   Photo's key image (staged under `photos/`) and full asset (staged under `live_photo/`) are
+   named/linked so they're recognizable as the same underlying asset, and how the tracking
+   schema represents an asset staged to two locations at once (see the `target_relative_path`
+   note in [FR-6](#fr-6-tracking-file)).
+6. **Upload destination for `live_photo/`.** Not yet decided whether Live Photos go to Amazon
+   Photos, S3/Glacier alongside `video/`, or are handled manually. Affects whether
+   [Section 8](#8-amazon-photos-upload-strategy)'s Backup-folder approach needs to point at more
+   than just `photos/`.
+
+**Still open, TBD (not deferred to a specific phase yet):**
+
 4. **osxphotos compatibility** with macOS Tahoe 26.5 and Python 3.14 is not yet fully confirmed
    upstream as of this writing; a compatibility spike is needed early in implementation, with a
    fallback plan (e.g., pin an older Python minor version, or a different access method) if it
    doesn't pan out.
-5. **Photos.app running concurrently.** Reading the Photos library database while Photos.app is
-   open is not officially supported by Apple. Needs to be validated in the design phase; the
-   safe default is documenting "quit Photos.app before running."
 
 ## 10. Future Enhancements (explicitly out of scope for v1)
 
-- CLI subcommand to mark a photo `ignored` by UUID/filename instead of hand-editing the CSV.
+- CLI subcommand to mark an asset `ignored` by UUID/filename instead of hand-editing the CSV.
 - Cross-asset perceptual duplicate detection using `checksum_sha256` (exact duplicates) and/or
   perceptual hashing (near duplicates).
 - Multi-library merge/consolidation tooling.
 - Direct automated upload to Amazon Photos, if/when an official API becomes available.
-- Video and Live Photo motion-component support.
+- Automated upload of `video/` (and possibly `live_photo/`) contents to S3/Glacier — currently
+  a separate, unspecified manual/external process.
