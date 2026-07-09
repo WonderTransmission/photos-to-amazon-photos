@@ -1,7 +1,11 @@
 # Tasks: Photos-to-Amazon-Photos Preparer
 
-Status: Draft (v0.5) — under review
+Status: Draft (v0.6) — under review
 Phase: 3 of 3 (Requirements → Design → **Tasks**)
+
+**v0.6 note:** Milestone 1 (T1.1, T1.2) is done — project scaffolding exists and is verified
+working (`pip install -e .`, `--help`, `pytest`, `ruff`). See the repo root and `src/` for the
+actual code. Milestone 2 (the four pure-computation core modules) is next.
 
 **v0.2 note:** Milestone 0 (T0.1, T0.2) has been executed against a real library on this
 machine, ahead of the rest of implementation — see results inline below and the full writeup in
@@ -120,7 +124,7 @@ DoD:
 
 ## Milestone 1 — Project Scaffolding
 
-### T1.1 — Python project setup
+### T1.1 — Python project setup — ✅ DONE
 
 - `pyproject.toml`: package metadata, `requires-python = ">=3.14"`, `osxphotos` pinned per
   T0.1's outcome, `pytest` as a dev dependency.
@@ -129,17 +133,27 @@ DoD:
   Section 8.
 
 DoD:
-- [ ] `pip install -e .` succeeds; `photos-to-amazon-photos --help` runs and prints usage.
+- [x] `pip install -e .` succeeds; `photos-to-amazon-photos --help` runs and prints usage.
+      `cli.py` implements the full FR-1/Section 8 argument surface (both positionals, all three
+      options) and validates `library_path` exists. The five other modules
+      (`library_reader.py`, `date_resolver.py`, `namer.py`, `tracking.py`, `stager.py`) exist as
+      documented stubs, each pointing at the design.md section and task that implements it —
+      `main()` currently logs "not yet implemented" and exits 1 after successful arg validation,
+      rather than silently doing nothing or pretending to work.
 
-### T1.2 — Dev tooling
+### T1.2 — Dev tooling — ✅ DONE
 
 - Pick and configure a formatter/linter (e.g., `ruff`) and confirm `pytest` runs.
 - Document the `test` / `lint` / `format` commands in the README (a `Makefile` is optional, not
   required).
 
 DoD:
-- [ ] `pytest` runs (even with zero tests) with no configuration errors.
-- [ ] Lint command runs clean on the scaffolded skeleton.
+- [x] `pytest` runs — 4 real tests in `tests/test_cli.py` (not placeholders): `--help` exits 0
+      and prints usage, missing required args exits 2, a nonexistent `library_path` exits 2, and
+      valid args parse successfully but correctly report "not yet implemented" (exit 1). All 4
+      pass.
+- [x] `ruff check .` and `ruff format --check .` both pass clean on the scaffolded skeleton.
+- [x] README updated with install/test/lint/format instructions.
 
 ## Milestone 2 — Core Modules
 
