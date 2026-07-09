@@ -25,11 +25,19 @@ set -euo pipefail
 LIBRARY_PATH="${1:-}"
 
 if [ -z "$LIBRARY_PATH" ]; then
-  echo "No library path given — searching for Photos libraries on this Mac..."
+  echo "No library path given — searching for Photos libraries on this Mac (including external volumes)..."
   mapfile -t FOUND < <(mdfind "kMDItemContentType == 'com.apple.photos.library'" 2>/dev/null || true)
   if [ "${#FOUND[@]}" -eq 0 ]; then
-    echo "No libraries found via Spotlight. Re-run with the path explicitly, e.g.:"
-    echo "  bash validate_library.sh \"/Users/you/Pictures/Photos Library.photoslibrary\""
+    # Spotlight indexing is often disabled on external drives, especially HDDs — mdfind finds
+    # nothing in that case even if libraries are right there. Fall back to a direct filesystem
+    # search across all mounted volumes, which doesn't depend on Spotlight at all.
+    echo "Spotlight search found nothing (common if indexing is off for an external drive) — falling back to a direct filesystem search of /Volumes..."
+    mapfile -t FOUND < <(find /Volumes -maxdepth 6 -iname "*.photoslibrary" -type d 2>/dev/null || true)
+  fi
+  if [ "${#FOUND[@]}" -eq 0 ]; then
+    echo "No libraries found either way. Make sure the external drive is connected and mounted,"
+    echo "then re-run with the path explicitly, e.g.:"
+    echo "  bash validate_library.sh \"/Volumes/YourDrive/Photos Library.photoslibrary\""
     exit 1
   elif [ "${#FOUND[@]}" -eq 1 ]; then
     LIBRARY_PATH="${FOUND[0]}"
@@ -44,6 +52,23 @@ fi
 if [ ! -d "$LIBRARY_PATH" ]; then
   echo "ERROR: not a directory: $LIBRARY_PATH"
   exit 1
+fi
+
+# Filesystem check: Photos libraries rely on hard links and extended attributes that exFAT/NTFS
+# don't reliably support — only APFS or Mac OS Extended (HFS+) are safe for this. Report it so
+# it shows up in the summary. `diskutil info` needs a device identifier or mount root, not an
+# arbitrary path inside the volume, so resolve that first via `df`. Best-effort only — never
+# fail the whole script over this diagnostic.
+DEVICE="$(df "$LIBRARY_PATH" 2>/dev/null | tail -1 | awk '{print $1}')" || DEVICE=""
+FS_TYPE=""
+if [ -n "$DEVICE" ]; then
+  FS_TYPE="$(diskutil info "$DEVICE" 2>/dev/null | awk -F': *' '/File System Personality/ {print $2}')" || FS_TYPE=""
+fi
+echo "Filesystem of the volume holding this library: ${FS_TYPE:-unknown}"
+if [ -n "$FS_TYPE" ] && [[ "$FS_TYPE" != *APFS* ]] && [[ "$FS_TYPE" != *"Mac OS Extended"* ]]; then
+  echo "WARNING: '$FS_TYPE' is not APFS or Mac OS Extended (HFS+) — Photos libraries are not"
+  echo "reliably supported on other filesystems (e.g. exFAT, NTFS) due to hard link/xattr needs."
+  echo "This doesn't block this validation script, but is worth checking/fixing at the drive level."
 fi
 
 # Prefer python3.14 if present (matches the project's target runtime), else fall back to
