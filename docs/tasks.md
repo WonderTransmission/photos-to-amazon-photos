@@ -1,6 +1,6 @@
 # Tasks: Photos-to-Amazon-Photos Preparer
 
-Status: Draft (v0.4) — under review
+Status: Draft (v0.5) — under review
 Phase: 3 of 3 (Requirements → Design → **Tasks**)
 
 **v0.2 note:** Milestone 0 (T0.1, T0.2) has been executed against a real library on this
@@ -18,6 +18,12 @@ missing originals) — see design.md Sections 11.4–11.6. Added **T0.3** below 
 availability-relevant parts of this spike against the real target library before Milestone 1's
 scaffolding work depends on assumptions that haven't actually been tested on representative
 data.
+
+**v0.4 note:** T0.3 is done — all 6 real target libraries validated (138,893 assets total).
+Availability confirmed a non-issue (0.023% unavailable), the video `ismissing` bug confirmed
+spike-library-specific, and NFR-6 downgraded from MUST to SHOULD after 3/6 real runs succeeded
+with Photos.app open. Full results in design.md Section 11.6. **Milestone 0 is now fully
+complete** — nothing blocks starting Milestone 1.
 
 This document breaks [`design.md`](design.md) down into ordered, mostly-independent
 implementation tasks, grouped into milestones. Milestones are sequential (later ones assume
@@ -78,7 +84,7 @@ DoD:
       `photos_date` (requirements.md FR-6, design.md Section 4/5.2) since the trustworthy branch
       isn't always camera-EXIF-derived (screenshots proved this concretely).
 
-### T0.3 — Validate against the actual target library (the other Mac) — blocking for Milestone 1
+### T0.3 — Validate against the actual target library (the other Mac) — ✅ DONE
 
 T0.1/T0.2 validated osxphotos *mechanics* (opening a library, `export()`, Live Photo pairing,
 the date heuristic) — those are expected to generalize and don't need re-testing. What they
@@ -87,30 +93,30 @@ secondary/receiving Mac (design.md Section 11.4), is the **availability picture*
 `ismissing`/`path` behave normally for a large, personally-uploaded library the way NFR-7
 currently assumes.
 
-- **Underway:** `scripts/validate_library.sh` was written for this — self-contained, read-only,
-  self-cleaning, run by the user on the target Mac with output pasted back. Covers T0.1's
-  enumeration (classification counts, `ismissing`/`path` resolution rates by media type, UUID
-  uniqueness) and T0.2's date-heuristic spot-check in one pass.
-- The target libraries live on an **external drive** — the script accounts for this: it falls
+- `scripts/validate_library.sh` was run by the user against all 6 real target libraries on the
+  external drive (not just one), with output collected in `scripts/validate_library_output.txt`.
+  Covered T0.1's enumeration (classification counts, `ismissing`/`path` resolution rates by
+  media type, UUID uniqueness) and T0.2's date-heuristic spot-check in one pass per library.
+- The target libraries live on an **external drive** — the script accounted for this: it falls
   back to a direct `/Volumes` filesystem search if Spotlight-based discovery finds nothing
   (common when indexing is off for an external drive), and reports the volume's filesystem
-  format (APFS/HFS+ expected and confirmed by the user for this drive; NFR-8 — exFAT/NTFS
-  wouldn't reliably support a Photos library at all, independent of this tool).
-- Specifically check: what fraction of assets have a resolvable `path` without any extra setup
-  (the expectation, per the user, is "originals are there" since they uploaded them personally)?
-  Does the video `ismissing`-unreliability bug (design.md Section 5.5) also show up here, or was
-  it specific to the spike library's Shared Albums content?
+  format. Confirmed APFS (NFR-8) — no filesystem risk.
 
 DoD:
-- [ ] Availability rates measured on the real target library; NFR-7 either confirmed as a
-      non-issue in practice (originals genuinely local, precondition trivially satisfied) or
-      refined again based on what's actually found — no more hypothesizing from a
-      non-representative library.
-- [ ] design.md Section 11.6 updated with real results, closing out the "still open" item it
-      currently tracks.
-- [ ] If library size here is significantly larger than the spike library (10,267 assets),
-      capture rough scale (asset count) to sanity-check NFR-3's streaming assumption is still
-      comfortably sufficient.
+- [x] Availability rates measured on all 6 real target libraries: **confirmed a non-issue in
+      practice** — only 32 of 138,893 assets (0.023%) unavailable. NFR-7 stays documented but
+      isn't expected to meaningfully affect real usage.
+- [x] design.md Section 11.6 updated with real results, closing out the item it was tracking.
+- [x] Scale captured: 138,893 assets combined, largest single library 46,141 (55% Live Photos).
+      Confirmed comfortably within NFR-3's (updated) streaming assumption.
+- [x] (Beyond original DoD, but a direct consequence of the data) Video `ismissing` bug
+      confirmed spike-library-specific (0.045% of real videos vs. 91% on the spike library) —
+      design.md Section 5.5 updated.
+- [x] (Beyond original DoD) NFR-6 downgraded from MUST to SHOULD after 3 of 6 real runs
+      succeeded with Photos.app open — requirements.md and design.md Sections 5.3/11.6 updated.
+      This was an explicit user decision, not an automatic conclusion from the data alone.
+
+**Milestone 0 is now complete.** All three tasks done, no blockers remain for Milestone 1.
 
 ## Milestone 1 — Project Scaffolding
 
@@ -240,9 +246,12 @@ and eventual completion. Exercises NFR-4 directly.
 
 ### T4.2 — Large-library smoke test
 
-Run against the largest available real library (or a synthetic one of similar size) to sanity
-check NFR-3 (memory stays bounded — spot-check with e.g. `/usr/bin/time -l`) and get a real
-sense of expected runtime.
+Run against the largest real target library — `Photos_2017-2024.photoslibrary`, 46,141 assets
+(55% Live Photos), confirmed via T0.3 — to sanity check NFR-3 (memory stays bounded — spot-check
+with e.g. `/usr/bin/time -l`) and get a real sense of expected runtime. If feasible, a full run
+across all 6 libraries into one shared `target_root`/tracking file (~139,000 assets combined) is
+an even better real-world test, since that's the realistic usage pattern implied by the
+libraries' date-range naming.
 
 ### T4.3 — Metadata spot-check
 

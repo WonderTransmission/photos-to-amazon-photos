@@ -1,6 +1,6 @@
 # Requirements: Photos-to-Amazon-Photos Preparer
 
-Status: Draft (v0.5) — under review
+Status: Draft (v0.6) — under review
 Phase: 1 of 3 (Requirements → Design → Tasks)
 
 ## 1. Purpose
@@ -209,25 +209,33 @@ assets. The tool MUST print a run summary at the end: counts of copied / already
 
 - NFR-1: Implemented in Python 3.14+.
 - NFR-2: Must run on macOS Tahoe (26.5) against Photos v11 libraries.
-- NFR-3: Must handle libraries in the tens-of-thousands-of-photos range without unbounded
-  memory growth (e.g., stream/iterate rather than materializing the whole library in memory).
+- NFR-3: Must handle libraries at least in the tens-of-thousands-of-assets range per library
+  without unbounded memory growth (e.g., stream/iterate rather than materializing the whole
+  library in memory). Confirmed via T0.3 validation against the real target libraries: single
+  libraries up to ~46,000 assets, ~139,000 combined across the full set — the streaming
+  requirement is not theoretical, it's load-bearing at this scale.
 - NFR-4: Idempotent and safe to interrupt (Ctrl-C, crash, power loss) at any point without
   requiring manual cleanup before the next run.
 - NFR-5: Read-only with respect to the source library at all times ([FR-2](#fr-2-source-access-is-read-only)).
-- NFR-6: Photos.app MUST be quit before running the tool. Reading the Photos library database
-  while Photos.app is open is not officially supported by Apple, so this is documented as a
-  hard precondition rather than something the tool works around. Whether the tool actively
-  detects and enforces this (vs. relying on documentation alone) is a design-phase decision.
+- NFR-6: Photos.app SHOULD be quit before running the tool, but this is a recommendation, not a
+  hard requirement. Originally a hard "MUST" (reading the Photos library database while
+  Photos.app is open is not officially supported by Apple), downgraded after T0.3's validation:
+  3 of 6 real runs against the target libraries had Photos.app open throughout, all completed
+  with zero errors and successful test exports. See design.md Section 11.6 for the full
+  evidence and caveats (the test was light — enumeration plus a couple of sample exports, not a
+  full multi-hour run — so the non-blocking warning from design.md Section 5.3 stays in place
+  as a nudge, just no longer backed by a hard MUST).
 - NFR-7: Every asset the tool stages MUST have its full-resolution original available on local
   disk at the time the tool runs. The tool does not fetch or download anything itself — for any
   asset, the only osxphotos mechanism that can retrieve a not-yet-local original works by
-  driving Photos.app via AppleScript/PhotoKit, which conflicts with NFR-6. What makes an asset
-  unavailable, and how a user makes it available, is environment- and library-specific (e.g.,
-  iCloud Photos' "Optimize Mac Storage" if enabled; content from Shared Albums or "Shared with
-  You" that was never explicitly saved into the personal library, which isn't affected by that
-  setting at all) — see design.md Section 11.5 for what was found on the specific library used
-  for the design-phase spike, which turned out not to be representative of the primary target
-  library/libraries this tool is meant for. Getting originals locally available is a one-time,
+  driving Photos.app via AppleScript/PhotoKit, which would reintroduce the concern NFR-6 is
+  about. What makes an asset unavailable, and how a user makes it available, is environment- and
+  library-specific (e.g., iCloud Photos' "Optimize Mac Storage" if enabled; content from Shared
+  Albums or "Shared with You" that was never explicitly saved into the personal library, which
+  isn't affected by that setting at all) — see design.md Section 11.5 for what was found on the
+  library used for the design-phase spike, which turned out not to be representative. **T0.3
+  confirmed this is a non-issue in practice on the real target libraries**: only 32 of 138,893
+  assets (0.023%) were unavailable. Getting originals locally available is a one-time,
   user-performed step outside the tool, not something the CLI automates or checks. Assets still
   unavailable at run time are handled as an ordinary per-asset error (FR-10) and retried
   automatically on the next run.

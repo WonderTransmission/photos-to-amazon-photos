@@ -1,6 +1,6 @@
 # Design: Photos-to-Amazon-Photos Preparer
 
-Status: Draft (v0.3) — under review
+Status: Draft (v0.4) — under review
 Phase: 2 of 3 (Requirements → **Design** → Tasks)
 
 This document describes *how* [`requirements.md`](requirements.md) gets implemented. It
@@ -21,6 +21,14 @@ Optimize Mac Storage" as the fix for missing originals) were wrong and have been
 place, with the reasoning kept visible rather than silently rewritten. The mechanics-level
 findings (osxphotos compatibility, `export()` behavior, the date heuristic, the video
 `ismissing` bug) are unaffected and expected to generalize.
+
+**v0.4 note:** T0.3 (re-validating against the real target libraries) is complete — see
+[Section 11.6](#116-t03-results-validated-against-the-actual-target-library) for full results.
+Everything 11.4–11.5 flagged as uncertain is now resolved with real data: availability is a
+non-issue in practice (0.023% unavailable across 138,893 assets), the video `ismissing` bug is
+confirmed spike-library-specific, and NFR-6 is downgraded from a hard precondition to a
+recommendation based on 3 successful real runs with Photos.app open. No open items remain from
+the original compatibility/availability risk thread.
 
 ## 1. Architecture Overview
 
@@ -171,7 +179,13 @@ being read to be Photos' currently-open (default) library. Given that, and per t
 doc's decision not to pursue *enforcement*, the design adds one small, low-risk touch: at
 startup, `cli.py` runs a non-blocking check (`pgrep -x Photos`, ignoring failures) and — if
 Photos.app appears to be running — logs a **warning**, not an error, recommending it be quit,
-then proceeds. NFR-6 remains a documented precondition; this is a nudge, not a gate.
+then proceeds.
+
+**Update after T0.3:** NFR-6 was downgraded from a hard "MUST quit" to a "SHOULD quit"
+recommendation — see [Section 11.6](#116-t03-results-validated-against-the-actual-target-library)
+for the evidence. This section's design doesn't change at all: it was already a non-blocking
+warning, never an enforced gate, so it was already consistent with a "SHOULD," not a "MUST."
+What changes is just how confidently that warning can be worded/justified.
 
 ### 5.4 Filename generation & Live Photo pairing
 
@@ -227,6 +241,13 @@ new status value or code path is needed.
 This also means `--dry-run` ([Section 8](#8-cli-interface-fr-1)) can't perfectly predict
 availability without actually attempting export — its "planned" output for an asset should be
 read as "will attempt," not an availability guarantee, and this is called out in that section.
+
+**Update after T0.3:** confirmed this bug pattern is specific to the original spike library's
+Shared Albums content, not a general osxphotos/macOS Tahoe issue. Across the real target
+libraries (138,893 assets, 4,427 videos), it occurred **twice** (0.045% of videos), vs. 421 of
+462 (91%) on the spike library. The attempt-and-verify design here stays exactly as-is — it's
+correct regardless of how often the underlying flag is wrong, and costs nothing extra — but it's
+now understood as a rare-edge-case safety net rather than a fix for a systemic problem.
 
 ## 6. Idempotency & Crash Safety (FR-7)
 
@@ -340,10 +361,10 @@ Mac where the user rarely imports their own photos — see
 [Section 11.4](#114-library-composition-this-spike-library-was-not-representative) — while the
 real target is multiple large libraries on a different Mac, populated by photos the user
 personally uploaded. The mechanics validated here (opening the library, `export()`, Live Photo
-pairing, UUID stability) are generic osxphotos behavior and should transfer. **The
-availability/local-storage findings in 11.4–11.5 should not be assumed to transfer** — they need
-their own validation run against the actual target library/libraries before being trusted. See
-[Section 11.6](#116-next-validating-against-the-actual-target-library) for how.
+pairing, UUID stability) are generic osxphotos behavior and transferred cleanly. The
+availability/local-storage findings in 11.4–11.5 did *not* transfer, as suspected — see
+[Section 11.6](#116-t03-results-validated-against-the-actual-target-library) for the real
+results, now validated directly against the actual target libraries.
 
 **No fallback (sqlite3 direct access, alternate library) needed** based on what's been tested so
 far — osxphotos on this Python 3.14 / macOS Tahoe 26.5 combination is sound.
@@ -388,9 +409,9 @@ always `None`, only an anonymized per-contributor hash.)
 Practically, this means: **this Mac's library is a secondary/receiving library, not the user's
 primary photo collection.** Only ~53 assets (16MB) are genuinely local, personally-imported
 content here. The user's real target is a different Mac, with multiple large libraries built
-from photos they personally uploaded — a much simpler situation with no Shared Albums
-involvement expected, that hasn't been validated yet (see
-[Section 11.6](#116-next-validating-against-the-actual-target-library)).
+from photos they personally uploaded — a much simpler situation, **confirmed** to have no Shared
+Albums involvement by T0.3 (see
+[Section 11.6](#116-t03-results-validated-against-the-actual-target-library)).
 
 **Decision (still stands regardless of the corrected hypothesis): the tool stages shared/synced
 content as-is, with no filtering by contributor**, if and when it's encountered on any library
@@ -425,23 +446,66 @@ If some assets remain unavailable at run time regardless of precondition, [Secti
 attempt-and-verify design already handles it gracefully: `status=error`, retried automatically on
 the next run, no special-casing needed.
 
-### 11.6 Next: validating against the actual target library
+### 11.6 T0.3 results: validated against the actual target library
 
-Everything in 11.4–11.5 is now understood to be a property of an unrepresentative test library,
-not a general finding about this tool's input. Before trusting NFR-7 / the availability design
-for real use, the same T0.1/T0.2-style spike should be re-run against at least one of the actual
-target libraries on the user's other Mac — where photos were personally uploaded and are
-expected to be genuinely local, with no Shared Albums complexity. That's a new, explicit
-follow-up (not yet a numbered task — see tasks.md for where this lands) rather than an assumption
-that the current spike's mechanics-level validation (osxphotos opens/exports/paginates correctly)
-is enough on its own; the availability characteristics specifically need their own real test.
+Everything in 11.4–11.5 was a property of an unrepresentative test library, not a general
+finding about this tool's input. T0.3 re-ran the equivalent checks (via
+`scripts/validate_library.sh`, run by the user) against all 6 real target libraries on the
+external drive — the actual intended input for this tool. Results:
+
+**Scale:** 138,893 assets total across the 6 libraries (largest single library: 46,141, of
+which 25,206 — 55% — are Live Photos). Bigger than NFR-3's original "tens of thousands" framing
+assumed; NFR-3 updated accordingly.
+
+**Availability — confirmed a non-issue.** Only 32 of 138,893 assets (0.023%) were
+`ismissing=True`; every library showed effectively 100% resolvable-path rates. This directly
+confirms the user's stated expectation ("I uploaded these myself, the originals are there") and
+resolves the residual uncertainty this whole sub-thread (11.4–11.6) was tracking. NFR-7 stays
+documented as a precondition — it's real, cheap to state, and FR-10's retry handling makes any
+straggler harmless — but it's now clear it won't meaningfully affect real usage.
+
+**Video `ismissing` bug — confirmed spike-library-specific**, not a general osxphotos/Tahoe
+issue. 2 occurrences out of 4,427 real videos (0.045%), vs. 421/462 (91%) on the spike library.
+See [Section 5.5](#55-asset-availability-check-not-ismissing)'s update.
+
+**Edited-asset coverage, finally real.** 11,652 edited assets across these libraries (the spike
+library had zero). Export succeeded with zero errors across all libraries and categories tested,
+giving much better indirect confidence in the `path_edited` branch — though still not a
+*specifically targeted* positive test (the script's export sample wasn't chosen to guarantee
+hitting an edited asset). Worth a specifically-targeted check in T3.1 even so, just with much
+lower risk now than when this was flagged with zero real edited-asset data available at all.
+
+**Live Photo export confirmed working at real scale**, including the 2017-2024 library where
+they're the majority media type (25,206 of 46,141 assets) — no failures in any of the three
+libraries where Live Photos were present and export-tested.
+
+**Date heuristic held up on a much larger, independent dataset**: 5 of the 6 libraries got the
+ground-truth spot check (the first didn't have `exiftool` installed yet), each sampling 15 real
+assets — 15/15, 15/15, 15/15, 14/15, 15/15 consistent. Reinforces [Section 5.2](#52-date-resolution--the-undated-heuristic)'s
+original validation on a completely different, much larger dataset.
+
+**NFR-6 (Photos.app concurrency) — downgraded from MUST to SHOULD.** Photos.app was running
+during 3 of the 6 validation runs (`pre_2006`, `2025-now`, `2017-2024`), and all three completed
+with zero errors and successful test exports. This is real evidence against treating "quit
+Photos.app first" as a hard precondition — but it's a limited test (enumeration plus 2 sample
+exports per category, not a full run processing tens of thousands of files over potentially
+hours, which is a different risk profile for a database Photos.app might be actively writing
+to). The user's call, made explicitly rather than left implicit: downgrade to a recommendation.
+[Section 5.3](#53-photosapp-concurrency-check-resolves-the-may-revisit-in-design-note-on-nfr-6)'s
+non-blocking-warning design required no change — it was already exactly this shape.
+
+**Practical note, not a design change:** the external drive had ~205GB free while already
+holding ~842GB across these 6 libraries. Worth keeping in mind whenever `target_root`'s location
+is decided (still open, doesn't block anything) — staging a large batch at once could get tight
+if it also lands on this drive.
 
 ## 12. Non-Functional Design Notes
 
 - **Streaming (NFR-3):** `db.photos()` is iterated one asset at a time; the tool never
   materializes a full list of exported files in memory. The only full-library-sized in-memory
   structure is the tracking index (`(uuid, component) → row`), which is small (a struct of
-  short strings/numbers per row) even at tens of thousands of assets.
+  short strings/numbers per row) — confirmed comfortably sufficient at the real target scale
+  (up to ~46,000 assets in a single library, ~139,000 combined across the full set, per T0.3).
 - **Interruptibility (NFR-4):** guaranteed by the periodic-flush design in
   [Section 6](#6-idempotency--crash-safety-fr-7) — an interrupted run loses at most the assets
   processed since the last flush, and picks them up again (via `status` still being absent or
@@ -454,22 +518,23 @@ is enough on its own; the availability characteristics specifically need their o
 
 | Requirements doc item | Resolution |
 |---|---|
-| 2. Exact `_undated/` detection rule | [Section 5.2](#52-date-resolution--the-undated-heuristic): `date` vs. `date_added` heuristic, **validated** against a real library. |
+| 2. Exact `_undated/` detection rule | [Section 5.2](#52-date-resolution--the-undated-heuristic): `date` vs. `date_added` heuristic, **validated** on two independent real datasets (spike library + all 6 real target libraries, T0.3). |
 | 3. Filename/collision scheme + Live Photo tracking-schema gap | [Section 5.4](#54-filename-generation--live-photo-pairing) (naming) + [Section 4](#4-tracking-schema-finalized) (`component` column). |
 | 6. Upload destination for `live_photo/` | Resolved as manual/undecided — [Section 10](#10-upload-handoff-strategy-per-target-subdirectory). |
-| 4. osxphotos compatibility | Python 3.14: resolved (supported). macOS Tahoe 26.5: mechanics **validated** ([Section 11.1](#111-osxphotos--macos-tahoe-compatibility--validated-but-not-on-a-representative-library)) — no fallback needed for opening/exporting. Availability characteristics still need validation against the real target library ([Section 11.6](#116-next-validating-against-the-actual-target-library)). |
-| NFR-6 "may revisit in design" (Photos.app concurrency) | [Section 5.3](#53-photosapp-concurrency-check-resolves-the-may-revisit-in-design-note-on-nfr-6): non-blocking warning added, precondition still documented, not enforced. |
-| *(new, found during the spike)* Video `ismissing` unreliability | [Section 5.5](#55-asset-availability-check-not-ismissing): don't pre-filter on `ismissing`; attempt-and-verify via `export()`, folded into existing FR-10 error handling. This one's a generic osxphotos behavior finding, expected to hold on any library. |
-| *(new, found during the spike, then corrected)* Spike library composition | [Section 11.4](#114-library-composition-this-spike-library-was-not-representative): initially misdiagnosed as an iCloud Shared Photo Library; corrected to Shared Albums/Shared-with-You content on a non-representative secondary Mac. Staging-as-is decision stands regardless. |
-| *(new, found during the spike, then corrected)* Local-availability precondition | [Section 11.5](#115-precondition-originals-must-be-available-locally-before-running): NFR-7 rewritten from a specific (wrong) settings fix to an outcome-based precondition, after the user confirmed "Optimize Mac Storage" was already off with the problem persisting. |
+| 4. osxphotos compatibility | **Fully resolved.** Python 3.14: supported. macOS Tahoe 26.5: mechanics validated ([Section 11.1](#111-osxphotos--macos-tahoe-compatibility--validated-but-not-on-a-representative-library)); availability characteristics validated against the real target libraries ([Section 11.6](#116-t03-results-validated-against-the-actual-target-library)) — no fallback needed anywhere. |
+| NFR-6 "may revisit in design" (Photos.app concurrency) | [Section 5.3](#53-photosapp-concurrency-check-resolves-the-may-revisit-in-design-note-on-nfr-6) / [Section 11.6](#116-t03-results-validated-against-the-actual-target-library): downgraded from MUST to SHOULD after T0.3 showed 3/6 real runs succeeded with Photos.app open. Non-blocking warning design unchanged. |
+| *(new, found during the spike)* Video `ismissing` unreliability | [Section 5.5](#55-asset-availability-check-not-ismissing): don't pre-filter on `ismissing`; attempt-and-verify via `export()`, folded into existing FR-10 error handling. **Confirmed spike-library-specific** by T0.3 (0.045% of real videos vs. 91% on the spike library) — design kept as a cheap safety net regardless. |
+| *(new, found during the spike, then corrected, then confirmed)* Spike library composition | [Section 11.4](#114-library-composition-this-spike-library-was-not-representative): initially misdiagnosed as an iCloud Shared Photo Library; corrected to Shared Albums/Shared-with-You content on a non-representative secondary Mac; **confirmed non-representative** by T0.3's real-library results. |
+| *(new, found during the spike, then corrected, then confirmed)* Local-availability precondition | [Section 11.5](#115-precondition-originals-must-be-available-locally-before-running) / [Section 11.6](#116-t03-results-validated-against-the-actual-target-library): NFR-7 rewritten to an outcome-based precondition, then **confirmed a non-issue in practice** — 0.023% unavailable across 138,893 real assets. |
 
 ## 14. Still Open for the Tasks Doc
 
-- **Validate against the actual target library/libraries** (the user's other Mac, personally-
-  uploaded content) — see [Section 11.6](#116-next-validating-against-the-actual-target-library).
-  This is now the primary remaining unknown: does the availability picture there look like a
-  normal personal library (expected), or does it have its own surprises? Should happen before or
-  early in Milestone 1, since it could still change NFR-7 or the error-handling assumptions.
-- `path_edited` remains validated only by code inspection, not a live test, since the spike
-  library had zero edited assets. Worth a specific check once a library with edited photos is
-  available to test against (likely true of the real target library).
+- `path_edited` remains validated only indirectly (zero errors across 11,652 real edited assets
+  during T0.3's export tests, but not via a test specifically targeted at an edited asset).
+  Low remaining risk; worth a specifically-targeted check in T3.1 regardless, now that libraries
+  with edited assets are known to be available to test against.
+- `target_root`'s location (same external drive as the source libraries, vs. the Mac's internal
+  disk) is still undecided by the user. Doesn't block any design or implementation work — FR-1
+  already accepts any path — but worth revisiting before a real production run given the
+  external drive's limited free space relative to the source libraries' combined size
+  ([Section 11.6](#116-t03-results-validated-against-the-actual-target-library)).
