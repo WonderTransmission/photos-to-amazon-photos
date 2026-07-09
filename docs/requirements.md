@@ -1,6 +1,6 @@
 # Requirements: Photos-to-Amazon-Photos Preparer
 
-Status: Draft (v0.3) — under review
+Status: Draft (v0.4) — under review
 Phase: 1 of 3 (Requirements → Design → Tasks)
 
 ## 1. Purpose
@@ -150,9 +150,9 @@ authoritative record of what has been processed. One row per Photos asset. Propo
 | `photo_uuid` | Photos library's stable UUID for the asset. Primary key. |
 | `source_library_path` | Path to the `.photoslibrary` this asset came from, for audit/debugging across multiple libraries feeding the same target dir. |
 | `original_filename` | Filename as known to Photos. |
-| `target_relative_path` | Path of the staged file, relative to `target_root` (empty if not currently staged). For a Live Photo, which stages to two locations (key image under `photos/`, full asset under `live_photo/`), one column is not sufficient — schema needs a second path column or a second row; exact fix is a design-phase decision (see [Section 9](#9-open-questions--assumptions) item 3). |
+| `target_relative_path` | Path of the staged file, relative to `target_root` (empty if not currently staged). A Live Photo stages to two locations (key image under `photos/`, full asset under `live_photo/`) — resolved in design.md Section 4 by adding a `component` column and making the primary key `(photo_uuid, component)`, giving each row exactly one path. |
 | `date_taken` | ISO 8601 capture date used to place the file (see [Section 7](#7-date-availability)). |
-| `date_source` | `exif` \| `library_added` — whether `date_taken` is a true capture date or a fallback. Makes the "can we guarantee a date" tradeoff auditable. |
+| `date_source` | `photos_date` \| `library_added` — whether `date_taken` is a trustworthy, asset-specific date (which may come from camera EXIF, or from another source Photos trusts, e.g. a screenshot's own capture timestamp) or an import-time fallback. Makes the "can we guarantee a date" tradeoff auditable. Validated in design.md Section 5.2. |
 | `date_added_to_library` | When the asset was imported into Photos. |
 | `timestamp_processed` | When this row was created/last handled by the tool (the "timestamp added" from the original ask). |
 | `file_size_bytes` | Size of the staged file at copy time. |
@@ -218,6 +218,14 @@ assets. The tool MUST print a run summary at the end: counts of copied / already
   while Photos.app is open is not officially supported by Apple, so this is documented as a
   hard precondition rather than something the tool works around. Whether the tool actively
   detects and enforces this (vs. relying on documentation alone) is a design-phase decision.
+- NFR-7: iCloud Photos' "Optimize Mac Storage" MUST be disabled, and the library MUST have
+  finished downloading all originals locally, before running the tool. Discovered during the
+  design phase's compatibility spike (design.md Section 11.5): getting a real original for an
+  asset that isn't stored locally requires driving Photos.app via AppleScript/PhotoKit, which
+  conflicts with NFR-6 — so the tool does not attempt to download anything itself. This is a
+  one-time, user-performed setup step outside the tool, not something the CLI automates or
+  checks. Assets still unavailable at run time despite this are handled as an ordinary per-asset
+  error (FR-10) and retried automatically on the next run.
 
 ## 7. Date Availability
 
@@ -277,14 +285,18 @@ folder" and avoids taking on upload-reliability and ToS risk.
 6. ~~Upload destination for `live_photo/`?~~ **Resolved:** manual/undecided for v1. `live_photo/`
    is staged only; no automated upload handoff (Amazon Photos or S3/Glacier) is designed for it.
    This may change in a future revision once a destination is chosen.
+4. ~~osxphotos compatibility?~~ **Resolved:** Python 3.14 confirmed supported upstream
+   (osxphotos 0.76.1, `requires-python >=3.10,<=3.14`). macOS Tahoe 26.5 / Photos v11
+   compatibility **validated directly against the real target library** as part of the design
+   phase's Milestone 0 spike (design.md Section 11.1) — opened cleanly, all 10,267 assets
+   enumerated with zero errors, export mechanics (including Live Photo dual-file export)
+   confirmed working. No fallback needed. The spike surfaced two new findings, captured as
+   NFR-7 (above) and design.md Sections 11.4–11.5, but neither is an osxphotos compatibility
+   problem — both are library-content/iCloud-sync realities the tool now explicitly accounts
+   for.
 
-**Still open, TBD:**
-
-4. **osxphotos compatibility.** Python 3.14 is confirmed supported upstream (osxphotos 0.76.1
-   declares `requires-python >=3.10,<=3.14`), so that part of the risk is resolved. macOS Tahoe
-   (26.x) support is still only partial upstream as of this writing ("most features work on
-   26.1 but osxphotos does not yet fully support 26.x") — this remains a real risk, addressed
-   via a compatibility spike as the first implementation task (see tasks doc).
+No items remain in "still open, TBD" as of this revision — see design.md for any residual,
+lower-stakes items being tracked into the tasks doc.
 
 ## 10. Future Enhancements (explicitly out of scope for v1)
 

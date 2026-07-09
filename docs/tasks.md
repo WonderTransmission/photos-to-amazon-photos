@@ -1,7 +1,14 @@
 # Tasks: Photos-to-Amazon-Photos Preparer
 
-Status: Draft (v0.1) — under review
+Status: Draft (v0.2) — under review
 Phase: 3 of 3 (Requirements → Design → **Tasks**)
+
+**v0.2 note:** Milestone 0 (T0.1, T0.2) has been executed against the real target library,
+ahead of the rest of implementation — see results inline below and the full writeup in
+design.md v0.2 (Sections 5.2, 5.5, 11.1–11.5). Two new, unplanned findings came out of it and
+were folded into the spec: requirements.md NFR-7 (a new precondition) and design.md Section 5.5
+(a design change to how asset availability is checked). Milestones 1+ are unaffected in
+structure, though T3.1/T3.2/T4.3 gained a couple of specific follow-up checks noted below.
 
 This document breaks [`design.md`](design.md) down into ordered, mostly-independent
 implementation tasks, grouped into milestones. Milestones are sequential (later ones assume
@@ -14,7 +21,7 @@ dependency is called out. Each task's Definition of Done (DoD) references the re
 design.md Section 11.1 flags two unresolved risks that could change downstream module design if
 they fail — settle both before writing any other code.
 
-### T0.1 — osxphotos / macOS Tahoe compatibility spike
+### T0.1 — osxphotos / macOS Tahoe compatibility spike — ✅ DONE
 
 - Install pinned osxphotos (`>=0.76.1`) under Python 3.14 on this machine (macOS Tahoe 26.5).
 - Open a real (or a copy of a real) Photos v11 library read-only via `osxphotos.PhotosDB`.
@@ -26,23 +33,38 @@ they fail — settle both before writing any other code.
   design.md Section 7 deferred this exact signature to implementation time.
 
 DoD:
-- [ ] Confirmed working end-to-end for all listed properties/methods, **or**
-- [ ] Documented failure mode and which design.md Section 11.1 fallback is being adopted, with
-      design.md updated accordingly before continuing to Milestone 1.
-- [ ] `PhotoInfo.export()` usage pattern for T3.1 written down (even just as a code comment /
-      scratch note) so T3.1 isn't rediscovering it.
+- [x] Confirmed working end-to-end: opened the real target library (10,267 assets), zero errors,
+      all UUIDs unique, `export()` validated for photos and Live Photos (dual-file pairing
+      confirmed correct). No fallback needed.
+- [x] `PhotoInfo.export()` usage pattern documented in design.md Section 7.
+- [x] (Unplanned, discovered during the spike) `ismissing` found unreliable for videos — design
+      changed to attempt-and-verify via `export()` instead of pre-filtering; see design.md
+      Section 5.5. Folded into T3.1's DoD below.
+- [x] (Unplanned) ~95% of the library is multi-contributor iCloud Shared Photo Library content;
+      93% of assets require iCloud download before a full-quality original is available locally.
+      Both resolved as explicit decisions — design.md Sections 11.4–11.5, requirements.md NFR-7.
+- [ ] Known gap, not blocking: `path_edited` unexercised by real data (zero edited assets in
+      this library) — re-check opportunistically in T3.1 if an edited asset becomes available.
+- [ ] Known gap, not blocking: `exiftool=True` passthrough ran without error but had no real
+      keywords/named-persons in the sample to positively confirm embedded output — re-check in
+      T3.1/T4.3 against an asset that has real keywords or named persons.
 
-### T0.2 — Date heuristic validation
+### T0.2 — Date heuristic validation — ✅ DONE
 
 - Using the same sample from T0.1, compute the `date` vs. `date_added` heuristic (design.md
-  Section 5.2) for each asset and manually cross-check against Photos.app's own displayed date
-  whether the resulting `_undated/` classification looks correct.
+  Section 5.2) for each asset and cross-check against ground truth (raw file EXIF
+  `DateTimeOriginal` via `exiftool`, and filename-embedded timestamps for screenshots) whether
+  the resulting `_undated/` classification looks correct.
 - Tune `UNDATED_THRESHOLD` (default proposed: 60 seconds) based on findings.
 
 DoD:
-- [ ] Heuristic validated against at least 20 real assets spanning multiple date-confidence
-      cases (has EXIF date, no EXIF/scanned photo, screenshot, imported from another device).
-- [ ] Final `UNDATED_THRESHOLD` value chosen and recorded (update design.md Section 14).
+- [x] Heuristic validated against 36 real assets (30 with camera EXIF, 6 screenshots) — 100%
+      agreement with independent ground truth. Full methodology and results in design.md
+      Section 5.2.
+- [x] Final `UNDATED_THRESHOLD` value: **60 seconds**, confirmed as-is, no tuning needed.
+- [x] Terminology fix carried back into the spec: `date_source` value renamed from `exif` to
+      `photos_date` (requirements.md FR-6, design.md Section 4/5.2) since the trustworthy branch
+      isn't always camera-EXIF-derived (screenshots proved this concretely).
 
 ## Milestone 1 — Project Scaffolding
 
