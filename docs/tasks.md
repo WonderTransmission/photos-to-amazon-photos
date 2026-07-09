@@ -1,6 +1,6 @@
 # Tasks: Photos-to-Amazon-Photos Preparer
 
-Status: Draft (v0.3) — under review
+Status: Draft (v0.4) — under review
 Phase: 3 of 3 (Requirements → Design → **Tasks**)
 
 **v0.2 note:** Milestone 0 (T0.1, T0.2) has been executed against a real library on this
@@ -87,11 +87,15 @@ secondary/receiving Mac (design.md Section 11.4), is the **availability picture*
 `ismissing`/`path` behave normally for a large, personally-uploaded library the way NFR-7
 currently assumes.
 
-- Get access to at least one of the real target libraries on the user's other Mac — method TBD
-  with the user (options include: remote access/SSH to that Mac if feasible, the user running a
-  small provided validation script there and sharing output, or physical access later).
-- Re-run T0.1's enumeration (classification counts, `ismissing`/`path` resolution rates by media
-  type, UUID uniqueness) and T0.2's date-heuristic spot-check against a sample from that library.
+- **Underway:** `scripts/validate_library.sh` was written for this — self-contained, read-only,
+  self-cleaning, run by the user on the target Mac with output pasted back. Covers T0.1's
+  enumeration (classification counts, `ismissing`/`path` resolution rates by media type, UUID
+  uniqueness) and T0.2's date-heuristic spot-check in one pass.
+- The target libraries live on an **external drive** — the script accounts for this: it falls
+  back to a direct `/Volumes` filesystem search if Spotlight-based discovery finds nothing
+  (common when indexing is off for an external drive), and reports the volume's filesystem
+  format (APFS/HFS+ expected and confirmed by the user for this drive; NFR-8 — exFAT/NTFS
+  wouldn't reliably support a Photos library at all, independent of this tool).
 - Specifically check: what fraction of assets have a resolvable `path` without any extra setup
   (the expectation, per the user, is "originals are there" since they uploaded them personally)?
   Does the video `ismissing`-unreliability bug (design.md Section 5.5) also show up here, or was

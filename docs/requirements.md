@@ -1,6 +1,6 @@
 # Requirements: Photos-to-Amazon-Photos Preparer
 
-Status: Draft (v0.4) — under review
+Status: Draft (v0.5) — under review
 Phase: 1 of 3 (Requirements → Design → Tasks)
 
 ## 1. Purpose
@@ -231,6 +231,13 @@ assets. The tool MUST print a run summary at the end: counts of copied / already
   user-performed step outside the tool, not something the CLI automates or checks. Assets still
   unavailable at run time are handled as an ordinary per-asset error (FR-10) and retried
   automatically on the next run.
+- NFR-8: When a source library lives on an external volume, that volume MUST be mounted before
+  running the tool, and SHOULD be formatted APFS or Mac OS Extended (HFS+) — Photos libraries
+  rely on hard links and extended attributes that exFAT/NTFS don't reliably support. FR-1
+  already accepts any filesystem path, so no functional change follows from this; it's recorded
+  here because it's a real, non-obvious precondition (confirmed via `scripts/validate_library.sh`,
+  which now checks and reports the filesystem format), not because anything about the design
+  needed to change for it.
 
 ## 7. Date Availability
 
