@@ -1,11 +1,16 @@
 # Tasks: Photos-to-Amazon-Photos Preparer
 
-Status: Draft (v0.6) — under review
+Status: Draft (v0.7) — under review
 Phase: 3 of 3 (Requirements → Design → **Tasks**)
 
 **v0.6 note:** Milestone 1 (T1.1, T1.2) is done — project scaffolding exists and is verified
 working (`pip install -e .`, `--help`, `pytest`, `ruff`). See the repo root and `src/` for the
-actual code. Milestone 2 (the four pure-computation core modules) is next.
+actual code.
+
+**v0.7 note:** Milestone 2 (T2.1–T2.4, the four pure-computation core modules) is done — 37
+tests passing total (33 new: 12 tracking, 6 date_resolver, 9 namer, 6 library_reader unit + 1
+integration), ruff clean. Milestone 3 (orchestration: `stager.py`, `cli.py`) is next — the first
+milestone that actually stages real files.
 
 **v0.2 note:** Milestone 0 (T0.1, T0.2) has been executed against a real library on this
 machine, ahead of the rest of implementation — see results inline below and the full writeup in
@@ -160,7 +165,7 @@ DoD:
 These four modules are pure computation — none of them write inside `target_root` (design.md
 Section 1) — so build and unit-test them independently before wiring up orchestration.
 
-### T2.1 — `tracking.py`
+### T2.1 — `tracking.py` — ✅ DONE
 
 - Implements the schema in design.md Section 4 (all columns including `component`; composite
   key `(photo_uuid, component)`).
@@ -172,45 +177,61 @@ Section 1) — so build and unit-test them independently before wiring up orches
 - `TrackingIndex.flush(path)`: atomic write-temp-then-`os.replace`, per design.md Section 6.
 
 DoD:
-- [ ] Unit tests: missing file loads empty; existing file loads correctly; `status=copied` →
+- [x] Unit tests: missing file loads empty; existing file loads correctly; `status=copied` →
       skip; `status=ignored` → skip; `status=error` → reprocess; no row → process; `flush` is
       atomic (no partial file visible under a simulated interruption); write-then-load
-      round-trips to the same rows.
+      round-trips to the same rows. 12 tests in `tests/test_tracking.py`, all passing —
+      including one extra beyond the listed DoD: `status=copied` with a missing/malformed
+      `timestamp_processed` is treated as unreliable and reprocessed (FR-7's literal wording),
+      and one confirming `flush()` creates the target directory if missing.
 
-### T2.2 — `date_resolver.py`
+### T2.2 — `date_resolver.py` — ✅ DONE
 
 - Implements the heuristic from design.md Section 5.2, using T0.2's validated
   `UNDATED_THRESHOLD`.
 - `resolve(date, date_added) -> (date_taken, date_source, is_undated)`.
 
 DoD:
-- [ ] Unit tests covering: `date_added is None`; `date == date_added`; `date` far from
-      `date_added`; the boundary exactly at `UNDATED_THRESHOLD`.
+- [x] Unit tests covering: `date_added is None`; `date == date_added`; `date` far from
+      `date_added`; the boundary exactly at `UNDATED_THRESHOLD` (and just inside it, to pin down
+      the strict-inequality behavior). 6 tests in `tests/test_date_resolver.py`, all passing.
+      Implemented as a `NamedTuple` so callers can use either tuple-unpacking (matching the
+      design doc's literal signature) or named attributes.
 
-### T2.3 — `namer.py`
+### T2.3 — `namer.py` — ✅ DONE
 
 - Implements design.md Section 5.4: filename format, `YYYY/MM/` + `_undated/` path computation
   per media type, Live Photo same-basename pairing under `live_photo/`.
 - `target_path(media_type, component, date_taken, is_undated, original_stem, uuid, ext) -> Path`.
 
 DoD:
-- [ ] Unit tests: normal photo path; video path; Live Photo `key_image` + `live_bundle` pairing
+- [x] Unit tests: normal photo path; video path; Live Photo `key_image` + `live_bundle` pairing
       (same basename, correct extensions, correct subdirectories); undated routing to
-      `_undated/`; determinism (same inputs → same output across repeated calls).
+      `_undated/`; determinism (same inputs → same output across repeated calls). 9 tests in
+      `tests/test_namer.py`, all passing. The Live Photo pairing requirement falls directly out
+      of the naming formula (same inputs except `ext` → same basename) rather than needing
+      dedicated pairing logic — verified explicitly by a test calling `target_path()` twice.
 
-### T2.4 — `library_reader.py`
+### T2.4 — `library_reader.py` — ✅ DONE
 
 - Wraps `osxphotos.PhotosDB(library_path)`, strictly read-only (FR-2/NFR-5).
 - `iter_assets() -> Iterator[AssetView]`: yields a small dataclass per `PhotoInfo` exposing only
   what downstream modules need (uuid, media_type per design.md Section 3's classification,
   source path(s), `hasadjustments`, `date`, `date_added`, original filename) — decouples the
-  rest of the tool from osxphotos's own object model.
+  rest of the tool from osxphotos's own object model. `AssetView` also carries a thin
+  `export()` passthrough to the underlying `PhotoInfo` (needed for T3.1; kept minimal, no
+  orchestration logic here).
 
 DoD:
-- [ ] Unit tests for the classification logic (Section 3) using fixture/fake `PhotoInfo`-like
-      objects, independent of a real library.
-- [ ] Manual/integration check against the T0.1 sample library: classification counts
-      (photo/video/live_photo) match a manual count in Photos.app for a small test album.
+- [x] Unit tests for the classification logic (Section 3) using fixture/fake `PhotoInfo`-like
+      objects, independent of a real library. 6 tests in `tests/test_library_reader.py`.
+- [x] Integration check against the T0.1 sample library — **substituted** an automated
+      regression check for the literal "manual count in Photos.app" the DoD asked for, since
+      that's a GUI step no automated test can perform: `tests/test_library_reader_integration.py`
+      opens the real spike library and asserts `LibraryReader`'s classification counts match the
+      exact numbers independently confirmed via raw osxphotos during the Milestone 0 spike
+      (photo=5737, video=462, live_photo=4068, 10267 total, all UUIDs unique). Skipped
+      automatically on any machine without that library (e.g. a fresh clone).
 
 ## Milestone 3 — Orchestration
 
