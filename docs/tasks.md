@@ -1,14 +1,23 @@
 # Tasks: Photos-to-Amazon-Photos Preparer
 
-Status: Draft (v0.2) — under review
+Status: Draft (v0.3) — under review
 Phase: 3 of 3 (Requirements → Design → **Tasks**)
 
-**v0.2 note:** Milestone 0 (T0.1, T0.2) has been executed against the real target library,
-ahead of the rest of implementation — see results inline below and the full writeup in
-design.md v0.2 (Sections 5.2, 5.5, 11.1–11.5). Two new, unplanned findings came out of it and
-were folded into the spec: requirements.md NFR-7 (a new precondition) and design.md Section 5.5
-(a design change to how asset availability is checked). Milestones 1+ are unaffected in
-structure, though T3.1/T3.2/T4.3 gained a couple of specific follow-up checks noted below.
+**v0.2 note:** Milestone 0 (T0.1, T0.2) has been executed against a real library on this
+machine, ahead of the rest of implementation — see results inline below and the full writeup in
+design.md (Sections 5.2, 5.5, 11.1–11.6). Two new, unplanned findings came out of it and were
+folded into the spec: requirements.md NFR-7 (a new precondition) and design.md Section 5.5 (a
+design change to how asset availability is checked). Milestones 1+ are unaffected in structure,
+though T3.1/T3.2/T4.3 gained a couple of specific follow-up checks noted below.
+
+**v0.3 note:** the library used for that spike turned out to be a secondary/receiving Mac, not
+representative of the tool's actual target (the user's other Mac, with multiple large
+personally-uploaded libraries). Two spike conclusions were wrong and corrected in design.md
+(the iCloud Shared Photo Library hypothesis, and "disable Optimize Mac Storage" as the fix for
+missing originals) — see design.md Sections 11.4–11.6. Added **T0.3** below to re-run the
+availability-relevant parts of this spike against the real target library before Milestone 1's
+scaffolding work depends on assumptions that haven't actually been tested on representative
+data.
 
 This document breaks [`design.md`](design.md) down into ordered, mostly-independent
 implementation tasks, grouped into milestones. Milestones are sequential (later ones assume
@@ -40,9 +49,12 @@ DoD:
 - [x] (Unplanned, discovered during the spike) `ismissing` found unreliable for videos — design
       changed to attempt-and-verify via `export()` instead of pre-filtering; see design.md
       Section 5.5. Folded into T3.1's DoD below.
-- [x] (Unplanned) ~95% of the library is multi-contributor iCloud Shared Photo Library content;
-      93% of assets require iCloud download before a full-quality original is available locally.
-      Both resolved as explicit decisions — design.md Sections 11.4–11.5, requirements.md NFR-7.
+- [x] (Unplanned, later corrected) ~95% of the library turned out to be Shared Albums/Shared-
+      with-You content on a non-representative secondary Mac, not this user's real photo
+      collection, and 93% of assets weren't locally available for a reason unrelated to
+      "Optimize Mac Storage" (that was already disabled). Both findings corrected in place —
+      design.md Sections 11.4–11.6, requirements.md NFR-7 — and superseded by **T0.3** below,
+      which re-validates against the actual representative library.
 - [ ] Known gap, not blocking: `path_edited` unexercised by real data (zero edited assets in
       this library) — re-check opportunistically in T3.1 if an edited asset becomes available.
 - [ ] Known gap, not blocking: `exiftool=True` passthrough ran without error but had no real
@@ -65,6 +77,36 @@ DoD:
 - [x] Terminology fix carried back into the spec: `date_source` value renamed from `exif` to
       `photos_date` (requirements.md FR-6, design.md Section 4/5.2) since the trustworthy branch
       isn't always camera-EXIF-derived (screenshots proved this concretely).
+
+### T0.3 — Validate against the actual target library (the other Mac) — blocking for Milestone 1
+
+T0.1/T0.2 validated osxphotos *mechanics* (opening a library, `export()`, Live Photo pairing,
+the date heuristic) — those are expected to generalize and don't need re-testing. What they
+*didn't* validate, because the spike library turned out to be an unrepresentative
+secondary/receiving Mac (design.md Section 11.4), is the **availability picture**: whether
+`ismissing`/`path` behave normally for a large, personally-uploaded library the way NFR-7
+currently assumes.
+
+- Get access to at least one of the real target libraries on the user's other Mac — method TBD
+  with the user (options include: remote access/SSH to that Mac if feasible, the user running a
+  small provided validation script there and sharing output, or physical access later).
+- Re-run T0.1's enumeration (classification counts, `ismissing`/`path` resolution rates by media
+  type, UUID uniqueness) and T0.2's date-heuristic spot-check against a sample from that library.
+- Specifically check: what fraction of assets have a resolvable `path` without any extra setup
+  (the expectation, per the user, is "originals are there" since they uploaded them personally)?
+  Does the video `ismissing`-unreliability bug (design.md Section 5.5) also show up here, or was
+  it specific to the spike library's Shared Albums content?
+
+DoD:
+- [ ] Availability rates measured on the real target library; NFR-7 either confirmed as a
+      non-issue in practice (originals genuinely local, precondition trivially satisfied) or
+      refined again based on what's actually found — no more hypothesizing from a
+      non-representative library.
+- [ ] design.md Section 11.6 updated with real results, closing out the "still open" item it
+      currently tracks.
+- [ ] If library size here is significantly larger than the spike library (10,267 assets),
+      capture rough scale (asset count) to sanity-check NFR-3's streaming assumption is still
+      comfortably sufficient.
 
 ## Milestone 1 — Project Scaffolding
 

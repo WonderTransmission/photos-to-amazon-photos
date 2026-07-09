@@ -1,6 +1,6 @@
 # Design: Photos-to-Amazon-Photos Preparer
 
-Status: Draft (v0.2) — under review
+Status: Draft (v0.3) — under review
 Phase: 2 of 3 (Requirements → **Design** → Tasks)
 
 This document describes *how* [`requirements.md`](requirements.md) gets implemented. It
@@ -8,11 +8,19 @@ resolves the requirements doc's deferred open questions (2, 3, 6) and gives the 
 of the still-open one (4). Requirement IDs (FR-n, NFR-n, G-n, NG-n) are referenced throughout
 for traceability.
 
-**v0.2 note:** the tasks doc's Milestone 0 spike (T0.1/T0.2) has been run against the real
-target library, ahead of full implementation, since it was cheap to do and several of this
-document's open risks depended on it. Findings are folded in throughout, especially
+**v0.2 note:** the tasks doc's Milestone 0 spike (T0.1/T0.2) has been run against a real
+library, ahead of full implementation, since it was cheap to do and several of this document's
+open risks depended on it. Findings are folded in throughout, especially
 [Section 5.2](#52-date-resolution--the-undated-heuristic), [Section 5.5](#55-asset-availability-check-not-ismissing),
 and [Section 11](#11-risks--mitigations).
+
+**v0.3 note:** the library used for that spike turned out to be a poor stand-in for the tool's
+actual target — see [Section 11.4](#114-library-composition-this-spike-library-was-not-representative)
+onward. Two of the spike's conclusions (the iCloud Shared Photo Library hypothesis, and "disable
+Optimize Mac Storage" as the fix for missing originals) were wrong and have been corrected in
+place, with the reasoning kept visible rather than silently rewritten. The mechanics-level
+findings (osxphotos compatibility, `export()` behavior, the date heuristic, the video
+`ismissing` bug) are unaffected and expected to generalize.
 
 ## 1. Architecture Overview
 
@@ -47,7 +55,7 @@ that logic.
 | Dependency | Role | Notes |
 |---|---|---|
 | Python 3.14 | Runtime | Per NFR-1. |
-| `osxphotos` (MIT, PyPI) | Photos library access | Pin to `>=0.76.1` (confirmed `requires-python >=3.10,<=3.14`, i.e. Python 3.14-compatible). See [Section 11.1](#111-osxphotos--macos-tahoe-compatibility) for the remaining macOS Tahoe risk. |
+| `osxphotos` (MIT, PyPI) | Photos library access | Pin to `>=0.76.1` (confirmed `requires-python >=3.10,<=3.14`, i.e. Python 3.14-compatible). See [Section 11.1](#111-osxphotos--macos-tahoe-compatibility--validated-but-not-on-a-representative-library) for compatibility status. |
 | `exiftool` (external binary, not pip-installable) | Optional metadata enrichment | Only needed to embed Photos-only metadata (keywords, persons) per FR-4's "SHOULD". Detected at startup via `shutil.which`; its absence degrades gracefully, it is not a hard dependency. |
 | Python standard library | Everything else | `csv`, `hashlib`, `pathlib`, `argparse`, `logging`, `dataclasses`, `shutil`, `subprocess` (for the optional Photos.app check). No other third-party packages. |
 
@@ -311,24 +319,34 @@ of copied / already-processed (skipped) / ignored (skipped) / errored, broken ou
 
 ## 11. Risks & Mitigations
 
-### 11.1 osxphotos & macOS Tahoe compatibility — validated
+### 11.1 osxphotos & macOS Tahoe compatibility — validated, but not on a representative library
 
 Python 3.14 support is confirmed (osxphotos 0.76.1, `requires-python >=3.10,<=3.14`). The
-Milestone 0 spike additionally validated actual behavior against the real target library on
-this machine (macOS Tahoe 26.5, Photos v11): `PhotosDB` opened cleanly, all 10,267 assets
-enumerated with **zero errors**, all `uuid` values unique, `date`/`date_added`/`path`/
-`path_edited`/`hasadjustments`/`ismovie`/`live_photo` all returned sane values, and `export()`
-was exercised successfully for photos and Live Photos (including correct dual-file `.mov`
-companion export matching [Section 5.4](#54-filename-generation--live-photo-pairing)'s pairing
-design exactly). One real gap was found and addressed as a design change, not a blocker — see
+Milestone 0 spike additionally validated actual behavior against a real library on this machine
+(macOS Tahoe 26.5, Photos v11, `~/Pictures/Photos Library.photoslibrary`): `PhotosDB` opened
+cleanly, all 10,267 assets enumerated with **zero errors**, all `uuid` values unique,
+`date`/`date_added`/`path`/`path_edited`/`hasadjustments`/`ismovie`/`live_photo` all returned
+sane values, and `export()` was exercised successfully for photos and Live Photos (including
+correct dual-file `.mov` companion export matching
+[Section 5.4](#54-filename-generation--live-photo-pairing)'s pairing design exactly). One real
+gap was found and addressed as a design change, not a blocker — see
 [Section 5.5](#55-asset-availability-check-not-ismissing). `path_edited` specifically went
-unexercised by real data (this library has zero edited assets: `hasadjustments` is `False` for
-all 10,267), so that specific branch remains validated only by code inspection, not a live test
-— low risk given how simple the branch is, but worth a specific check during T3.1's
-implementation if/when an edited asset becomes available to test against.
+unexercised by real data (this library has zero edited assets), so that branch remains validated
+only by code inspection.
 
-**Overall: no fallback (sqlite3 direct access, alternate library) needed.** osxphotos on this
-Python 3.14 / macOS Tahoe 26.5 combination is sound for this project's purposes.
+**Important caveat added after this section was first written:** the library used for this spike
+turned out to be a poor stand-in for the tool's actual intended input. It's a secondary/receiving
+Mac where the user rarely imports their own photos — see
+[Section 11.4](#114-library-composition-this-spike-library-was-not-representative) — while the
+real target is multiple large libraries on a different Mac, populated by photos the user
+personally uploaded. The mechanics validated here (opening the library, `export()`, Live Photo
+pairing, UUID stability) are generic osxphotos behavior and should transfer. **The
+availability/local-storage findings in 11.4–11.5 should not be assumed to transfer** — they need
+their own validation run against the actual target library/libraries before being trusted. See
+[Section 11.6](#116-next-validating-against-the-actual-target-library) for how.
+
+**No fallback (sqlite3 direct access, alternate library) needed** based on what's been tested so
+far — osxphotos on this Python 3.14 / macOS Tahoe 26.5 combination is sound.
 
 ### 11.2 UUID stability
 
@@ -348,47 +366,75 @@ Covered in [Section 5.2](#52-date-resolution--the-undated-heuristic): validated 
 assets (30 with camera EXIF, 6 screenshots) with independent ground truth, 100% agreement.
 `UNDATED_THRESHOLD = 60` seconds confirmed as a reasonable default; no further tuning identified.
 
-### 11.4 Library composition: most of this library is a multi-contributor iCloud Shared Photo Library
+### 11.4 Library composition: this spike library was not representative
 
-The spike found that ~95% of the target library (9,544 of 10,267 assets — photos, videos, *and*
+The spike found that ~95% of the spike library (9,544 of 10,267 assets — photos, videos, *and*
 Live Photos) lives under a "cloudsharing" storage scope with `shared=True` and a
-`cloud_owner_hashed_id` that varies across several distinct values — the signature of an **iCloud
-Shared Photo Library with multiple contributors**, not solely this user's own captures. Only
-~7% (723 assets: 670 via "Shared with You"/Messages syndication + 53 clearly local-only) sits
-outside that shared scope. osxphotos exposes no usable "who added this" display name (`owner` is
-always `None`); only an anonymized per-contributor hash.
+`cloud_owner_hashed_id` that varies across several distinct values, with only ~7% (723 assets:
+670 via "Shared with You"/Messages syndication + 53 clearly local-only) sitting outside it.
 
-**Decision (explicitly made, not assumed): the tool stages this content as-is, with no filtering
-by contributor.** No design change follows from this beyond documenting it — [NG](requirements.md#3-non-goals-v1)-consistent,
-since per-contributor filtering was never a requirement and isn't being added now. Noted here so
-it's not mistaken for an oversight: this tool's "your Photos library" input may, for some users,
-legitimately include content contributed by other people in a shared library, and staging
-everything is the intended v1 behavior.
+The original writeup here hypothesized this was an **iCloud Shared Photo Library** (Apple's
+multi-person merged-library feature). **That hypothesis was wrong.** The user subsequently
+clarified that iCloud Photos sync has never been enabled on this Mac's library at all — which
+rules out iCloud Shared Photo Library specifically, since that feature requires iCloud Photos
+sync to be on. The far more likely explanation, consistent with iCloud Photos being off: this
+content is from **Shared Albums and/or "Shared with You"** (Messages) — both features operate
+independently of the main iCloud Photos sync toggle, are inherently cloud-hosted by design
+(recipients get previews, not automatic full local copies), and would produce exactly this
+`shared=True` / varying-contributor-hash / mostly-not-local pattern regardless of any Optimize
+Storage setting. (osxphotos exposes no usable "who shared this" display name — `owner` is
+always `None`, only an anonymized per-contributor hash.)
 
-### 11.5 Precondition: originals must be downloaded locally before running
+Practically, this means: **this Mac's library is a secondary/receiving library, not the user's
+primary photo collection.** Only ~53 assets (16MB) are genuinely local, personally-imported
+content here. The user's real target is a different Mac, with multiple large libraries built
+from photos they personally uploaded — a much simpler situation with no Shared Albums
+involvement expected, that hasn't been validated yet (see
+[Section 11.6](#116-next-validating-against-the-actual-target-library)).
 
-93% of assets in the target library are `ismissing=True` (this overlaps heavily but not
-completely with 11.4's shared-library content), because iCloud Photos' "Optimize Mac Storage" is
-enabled — only small local thumbnails (measured: 342×257px, ~50KB) are cached for these, nowhere
-near FR-3's "highest quality" bar.
+**Decision (still stands regardless of the corrected hypothesis): the tool stages shared/synced
+content as-is, with no filtering by contributor**, if and when it's encountered on any library
+this tool is pointed at. No design change follows from this beyond documenting it —
+[NG](requirements.md#3-non-goals-v1)-consistent, since per-contributor filtering was never a
+requirement.
 
-Getting real originals for a missing asset requires osxphotos's `download_missing`/PhotoKit
-path, which drives Photos.app via AppleScript — i.e., **requires Photos.app to be running**,
-directly conflicting with NFR-6. Explicitly decided: **the tool will not do this.** Instead, a
-new precondition (parallel to NFR-6, added to requirements.md as NFR-7): *iCloud "Optimize Mac
-Storage" must be disabled and the library must have finished downloading all originals locally
-before running the tool.* This is a one-time, user-performed setup step (via System
-Settings/Photos.app, outside this tool entirely), not something the CLI automates or checks.
-Disk space is not a practical constraint for this target machine (987GB free vs. a 5.7GB library
-today, mostly thumbnail cache).
+### 11.5 Precondition: originals must be available locally before running
 
-**Residual uncertainty:** it isn't confirmed whether disabling "Optimize Mac Storage" fully
-downloads *shared*-library content (11.4) the same way it does the user's own primary library —
-Shared Library sync may follow different rules. This isn't a blocker: if some assets are still
-unavailable at run time despite the precondition being followed, [Section 5.5](#55-asset-availability-check-not-ismissing)'s
-attempt-and-verify design already handles it gracefully — `status=error`, retried automatically
-on the next run, no special-casing needed. Worth a note in the T5.1 README (once real originals
-are downloading) if this turns out to be a real, persistent gap rather than a transient one.
+93% of assets in the spike library are `ismissing=True`, with only small local thumbnails
+(measured: 342×257px, ~50KB) cached — nowhere near FR-3's "highest quality" bar. **The original
+writeup here attributed this to iCloud Photos' "Optimize Mac Storage" being enabled, and
+recommended disabling it as the fix. That was wrong** — the user confirmed that setting is
+already disabled (and iCloud Photos sync itself was never enabled) on this Mac, yet the
+originals are still not local. Consistent with [Section 11.4](#114-library-composition-this-spike-library-was-not-representative)'s
+corrected explanation: this is very likely Shared Albums/Shared-with-You content that was never
+explicitly saved into the personal library, which "Optimize Mac Storage" has no effect on either
+way — that setting only governs a user's own synced library.
+
+Regardless of the specific cause, the underlying constraint stands: getting a real original for
+an asset that isn't already local requires osxphotos's `download_missing`/PhotoKit path, which
+drives Photos.app via AppleScript — i.e., **requires Photos.app to be running**, directly
+conflicting with NFR-6. Explicitly decided: **the tool will not do this.** Instead, NFR-7 (in
+requirements.md) is now phrased as an outcome, not a specific settings fix: *every asset staged
+must already have its original available locally at run time; how a user gets there is
+environment-specific and outside the tool's concern.* Getting there for *this particular
+library's* shared content might mean saving items into the personal library, or might not be
+straightforwardly achievable at all for content never explicitly saved — that's fine, since it's
+not the representative case anyway.
+
+If some assets remain unavailable at run time regardless of precondition, [Section 5.5](#55-asset-availability-check-not-ismissing)'s
+attempt-and-verify design already handles it gracefully: `status=error`, retried automatically on
+the next run, no special-casing needed.
+
+### 11.6 Next: validating against the actual target library
+
+Everything in 11.4–11.5 is now understood to be a property of an unrepresentative test library,
+not a general finding about this tool's input. Before trusting NFR-7 / the availability design
+for real use, the same T0.1/T0.2-style spike should be re-run against at least one of the actual
+target libraries on the user's other Mac — where photos were personally uploaded and are
+expected to be genuinely local, with no Shared Albums complexity. That's a new, explicit
+follow-up (not yet a numbered task — see tasks.md for where this lands) rather than an assumption
+that the current spike's mechanics-level validation (osxphotos opens/exports/paginates correctly)
+is enough on its own; the availability characteristics specifically need their own real test.
 
 ## 12. Non-Functional Design Notes
 
@@ -408,22 +454,22 @@ are downloading) if this turns out to be a real, persistent gap rather than a tr
 
 | Requirements doc item | Resolution |
 |---|---|
-| 2. Exact `_undated/` detection rule | [Section 5.2](#52-date-resolution--the-undated-heuristic): `date` vs. `date_added` heuristic, **validated** against the real library. |
+| 2. Exact `_undated/` detection rule | [Section 5.2](#52-date-resolution--the-undated-heuristic): `date` vs. `date_added` heuristic, **validated** against a real library. |
 | 3. Filename/collision scheme + Live Photo tracking-schema gap | [Section 5.4](#54-filename-generation--live-photo-pairing) (naming) + [Section 4](#4-tracking-schema-finalized) (`component` column). |
 | 6. Upload destination for `live_photo/` | Resolved as manual/undecided — [Section 10](#10-upload-handoff-strategy-per-target-subdirectory). |
-| 4. osxphotos compatibility | **Fully resolved**: Python 3.14 supported; macOS Tahoe 26.5 **validated** against the real library ([Section 11.1](#111-osxphotos--macos-tahoe-compatibility-validated)) — no fallback needed. |
+| 4. osxphotos compatibility | Python 3.14: resolved (supported). macOS Tahoe 26.5: mechanics **validated** ([Section 11.1](#111-osxphotos--macos-tahoe-compatibility--validated-but-not-on-a-representative-library)) — no fallback needed for opening/exporting. Availability characteristics still need validation against the real target library ([Section 11.6](#116-next-validating-against-the-actual-target-library)). |
 | NFR-6 "may revisit in design" (Photos.app concurrency) | [Section 5.3](#53-photosapp-concurrency-check-resolves-the-may-revisit-in-design-note-on-nfr-6): non-blocking warning added, precondition still documented, not enforced. |
-| *(new, found during the spike)* Video `ismissing` unreliability | [Section 5.5](#55-asset-availability-check-not-ismissing): don't pre-filter on `ismissing`; attempt-and-verify via `export()`, folded into existing FR-10 error handling. |
-| *(new, found during the spike)* Library is majority multi-contributor Shared content | [Section 11.4](#114-library-composition-most-of-this-library-is-a-multi-contributor-icloud-shared-photo-library): explicitly staged as-is, no filtering added. |
-| *(new, found during the spike)* iCloud-only originals not usable at "highest quality" | [Section 11.5](#115-precondition-originals-must-be-downloaded-locally-before-running): new precondition (NFR-7 in requirements.md) — user disables Optimize Mac Storage and waits for local sync; tool does not download anything itself. |
+| *(new, found during the spike)* Video `ismissing` unreliability | [Section 5.5](#55-asset-availability-check-not-ismissing): don't pre-filter on `ismissing`; attempt-and-verify via `export()`, folded into existing FR-10 error handling. This one's a generic osxphotos behavior finding, expected to hold on any library. |
+| *(new, found during the spike, then corrected)* Spike library composition | [Section 11.4](#114-library-composition-this-spike-library-was-not-representative): initially misdiagnosed as an iCloud Shared Photo Library; corrected to Shared Albums/Shared-with-You content on a non-representative secondary Mac. Staging-as-is decision stands regardless. |
+| *(new, found during the spike, then corrected)* Local-availability precondition | [Section 11.5](#115-precondition-originals-must-be-available-locally-before-running): NFR-7 rewritten from a specific (wrong) settings fix to an outcome-based precondition, after the user confirmed "Optimize Mac Storage" was already off with the problem persisting. |
 
 ## 14. Still Open for the Tasks Doc
 
-- Whether the residual uncertainty in [Section 11.5](#115-precondition-originals-must-be-downloaded-locally-before-running)
-  (does disabling Optimize Mac Storage fully resolve local availability for *shared*-library
-  content specifically) turns out to be a real, persistent gap once tested — no design change
-  needed either way, but worth confirming empirically before/during T3.1 and noting in T5.1's
-  README if it's a real limitation users should expect.
-- `path_edited` remains validated only by code inspection, not a live test, since this library
-  currently has zero edited assets ([Section 11.1](#111-osxphotos--macos-tahoe-compatibility-validated)).
-  Worth a specific check in T3.1 if/when an edited asset is available to test against.
+- **Validate against the actual target library/libraries** (the user's other Mac, personally-
+  uploaded content) — see [Section 11.6](#116-next-validating-against-the-actual-target-library).
+  This is now the primary remaining unknown: does the availability picture there look like a
+  normal personal library (expected), or does it have its own surprises? Should happen before or
+  early in Milestone 1, since it could still change NFR-7 or the error-handling assumptions.
+- `path_edited` remains validated only by code inspection, not a live test, since the spike
+  library had zero edited assets. Worth a specific check once a library with edited photos is
+  available to test against (likely true of the real target library).

@@ -218,14 +218,19 @@ assets. The tool MUST print a run summary at the end: counts of copied / already
   while Photos.app is open is not officially supported by Apple, so this is documented as a
   hard precondition rather than something the tool works around. Whether the tool actively
   detects and enforces this (vs. relying on documentation alone) is a design-phase decision.
-- NFR-7: iCloud Photos' "Optimize Mac Storage" MUST be disabled, and the library MUST have
-  finished downloading all originals locally, before running the tool. Discovered during the
-  design phase's compatibility spike (design.md Section 11.5): getting a real original for an
-  asset that isn't stored locally requires driving Photos.app via AppleScript/PhotoKit, which
-  conflicts with NFR-6 — so the tool does not attempt to download anything itself. This is a
-  one-time, user-performed setup step outside the tool, not something the CLI automates or
-  checks. Assets still unavailable at run time despite this are handled as an ordinary per-asset
-  error (FR-10) and retried automatically on the next run.
+- NFR-7: Every asset the tool stages MUST have its full-resolution original available on local
+  disk at the time the tool runs. The tool does not fetch or download anything itself — for any
+  asset, the only osxphotos mechanism that can retrieve a not-yet-local original works by
+  driving Photos.app via AppleScript/PhotoKit, which conflicts with NFR-6. What makes an asset
+  unavailable, and how a user makes it available, is environment- and library-specific (e.g.,
+  iCloud Photos' "Optimize Mac Storage" if enabled; content from Shared Albums or "Shared with
+  You" that was never explicitly saved into the personal library, which isn't affected by that
+  setting at all) — see design.md Section 11.5 for what was found on the specific library used
+  for the design-phase spike, which turned out not to be representative of the primary target
+  library/libraries this tool is meant for. Getting originals locally available is a one-time,
+  user-performed step outside the tool, not something the CLI automates or checks. Assets still
+  unavailable at run time are handled as an ordinary per-asset error (FR-10) and retried
+  automatically on the next run.
 
 ## 7. Date Availability
 
