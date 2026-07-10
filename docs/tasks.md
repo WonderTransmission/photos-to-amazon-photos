@@ -1,6 +1,6 @@
 # Tasks: Photos-to-Amazon-Photos Preparer
 
-Status: Draft (v0.7) — under review
+Status: Draft (v0.8) — under review
 Phase: 3 of 3 (Requirements → Design → **Tasks**)
 
 **v0.6 note:** Milestone 1 (T1.1, T1.2) is done — project scaffolding exists and is verified
@@ -9,8 +9,14 @@ actual code.
 
 **v0.7 note:** Milestone 2 (T2.1–T2.4, the four pure-computation core modules) is done — 37
 tests passing total (33 new: 12 tracking, 6 date_resolver, 9 namer, 6 library_reader unit + 1
-integration), ruff clean. Milestone 3 (orchestration: `stager.py`, `cli.py`) is next — the first
-milestone that actually stages real files.
+integration), ruff clean.
+
+**v0.8 note:** Milestone 3 (T3.1, T3.2 — orchestration) is done, and fully exercised against
+the real Milestone-0 spike library at full scale via the actual CLI, not just small samples or
+fakes: a real run staged exactly the 1,025 available assets and gracefully handled 13,310
+unavailable ones in under 6 minutes, zero crashes. 50 tests passing, ruff clean. Milestone 4
+(testing/hardening) is next — see its tasks below for what's already been substantially covered
+by this milestone's real-scale validation vs. what's still worth doing formally.
 
 **v0.2 note:** Milestone 0 (T0.1, T0.2) has been executed against a real library on this
 machine, ahead of the rest of implementation — see results inline below and the full writeup in
@@ -235,7 +241,7 @@ DoD:
 
 ## Milestone 3 — Orchestration
 
-### T3.1 — `stager.py`
+### T3.1 — `stager.py` — ✅ DONE
 
 - Wires T2.1–T2.4 together per design.md Sections 5–7 and 9: for each asset, compute its
   component(s) → tracking decision → export via `PhotoInfo.export()` (per T0.1's confirmed
@@ -243,34 +249,65 @@ DoD:
   → tracking upsert — all wrapped in per-asset error handling (FR-10).
 - Exiftool detection (`shutil.which("exiftool")`) done once at stager init, logged once.
 - Depends on: T0.1, T2.1–T2.4.
+- Extra design decision made during implementation, not pre-specified: Live Photo ignore
+  propagates across both `key_image`/`live_bundle` rows (design.md Section 4's "done as one
+  logical operation by the stager") — if a user hand-marks either row ignored, the stager
+  treats the whole asset as ignored and writes the sibling row to match, rather than requiring
+  both to be marked by hand.
 
 DoD:
-- [ ] Integration test against the T0.1 sample library into a scratch target dir: run twice back
+- [x] Integration test against the T0.1 sample library into a scratch target dir: run twice back
       to back — the second run stages nothing new (idempotency, FR-7) and reports all-skipped.
-- [ ] Test: deleting a staged file after a successful run, then re-running, does **not**
-      re-stage it (FR-7's filesystem-vs-tracking-file rule).
-- [ ] Test: manually marking a row `ignored` in `tracking.csv`, then re-running, does **not**
-      re-stage it (FR-9).
-- [ ] Test: a simulated per-asset failure marks that row `status=error` and does not abort the
-      run (FR-10).
+      `tests/test_stager_integration.py` (real library, 15-asset sample of available-path
+      assets). Also validated at **full scale**: a real run against the entire 10,267-asset
+      library via the actual CLI staged exactly the 1,025 available assets (688 live_photo +
+      296 photo + 41 video components — matching the T0.1/T0.3 "available" counts exactly) and
+      gracefully errored the other 13,310 in 5m49s wall time, exit code 0, zero crashes.
+- [x] Test: deleting a staged file after a successful run, then re-running, does **not**
+      re-stage it (FR-7's filesystem-vs-tracking-file rule). `test_deleted_staged_file_not_restaged`.
+- [x] Test: manually marking a row `ignored` in `tracking.csv`, then re-running, does **not**
+      re-stage it (FR-9). `test_manually_ignored_row_not_restaged`.
+- [x] Test: a simulated per-asset failure marks that row `status=error` and does not abort the
+      run (FR-10). `test_failure_marks_error_and_continues`.
+- [x] (Beyond DoD) Live Photo dual-export + basename pairing verified end to end, both with
+      fakes (`test_live_photo_stages_key_image_and_live_bundle_with_pairing`) and via a manual
+      real-library run (inspected the actual staged `.jpeg`/`.mov` pairs on disk).
+- [x] (Beyond DoD) Ignore-propagation across a Live Photo's two rows
+      (`test_live_photo_ignore_propagates_to_both_components`), empty-export-result handling
+      (`test_empty_export_result_marks_error_not_available`), and dry-run writing nothing
+      (`test_dry_run_writes_nothing`).
 
-### T3.2 — `cli.py`
+### T3.2 — `cli.py` — ✅ DONE
 
 - Argument parsing per design.md Section 8 (`library_path`, `target_root`, `--tracking-file`,
-  `--dry-run`, `--log-level`).
+  `--dry-run`, `--log-level`) — already done in T1.1.
 - Photos.app non-blocking warning check (design.md Section 5.3).
 - `--dry-run` mode: runs the same decision logic as T3.1 but skips the actual export/write/
   tracking-flush steps, logging what *would* happen.
-- Run summary printing (FR-10): counts by status × media_type.
+- Run summary printing (FR-10): counts by status × media_type, via `print()` so it's always
+  visible regardless of `--log-level`.
 - Depends on: T3.1.
+- Extra robustness added during implementation: `stager.run()` is wrapped in a try/except so a
+  library that can't be opened at all (distinct from FR-10's per-asset error handling, which
+  already can't raise) fails with a clean message and exit 1, not an uncaught traceback.
 
 DoD:
-- [ ] `--dry-run` against the T0.1 sample library produces a sane plan with zero filesystem
-      writes (target dir untouched; `tracking.csv` untouched or absent).
-- [ ] A real run, followed by inspecting `photos/`, `video/`, `live_photo/`, and `tracking.csv`,
-      matches expectations for the sample library.
-- [ ] The Photos.app-open warning fires when Photos.app is running, and the run still completes
-      (non-blocking, per design.md Section 5.3).
+- [x] `--dry-run` against the T0.1 sample library (full 10,267 assets, via the real CLI):
+      produced `live_photo: would_stage=8136, photo: would_stage=5737, video: would_stage=462,
+      total: 14335` with zero filesystem writes (target dir did not exist afterward) — exit 0.
+- [x] A real run (full library, via the real CLI), followed by inspecting `photos/`, `video/`,
+      `live_photo/`, and `tracking.csv`: file counts cross-checked exactly against the tracking
+      CSV's status breakdown (`photos/`=640 = 296 single + 344 key_image; `live_photo/`=688 =
+      344×2 paired still+`.mov`; `video/`=41), `_undated/` correctly populated for assets
+      without a trustworthy date, all 14,335 tracking rows accounted for.
+- [x] The Photos.app-open warning fires when Photos.app is running, and the run still completes
+      (non-blocking) — verified via `test_photos_app_warning_logged_when_running` (mocked, since
+      the check needs to be deterministic in tests) and confirmed non-blocking by design (a plain
+      `log.warning()`, no gate).
+
+**Milestone 3 is now complete.** 50 tests total, ruff clean. This is the first milestone where
+the tool actually stages real files — and it was fully exercised against the real Milestone-0
+spike library at full scale, not just small samples.
 
 ## Milestone 4 — Testing & Hardening
 
