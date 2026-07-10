@@ -1,6 +1,6 @@
 # Tasks: Photos-to-Amazon-Photos Preparer
 
-Status: Draft (v0.8) — under review
+Status: Draft (v0.9) — under review
 Phase: 3 of 3 (Requirements → Design → **Tasks**)
 
 **v0.6 note:** Milestone 1 (T1.1, T1.2) is done — project scaffolding exists and is verified
@@ -14,9 +14,14 @@ integration), ruff clean.
 **v0.8 note:** Milestone 3 (T3.1, T3.2 — orchestration) is done, and fully exercised against
 the real Milestone-0 spike library at full scale via the actual CLI, not just small samples or
 fakes: a real run staged exactly the 1,025 available assets and gracefully handled 13,310
-unavailable ones in under 6 minutes, zero crashes. 50 tests passing, ruff clean. Milestone 4
-(testing/hardening) is next — see its tasks below for what's already been substantially covered
-by this milestone's real-scale validation vs. what's still worth doing formally.
+unavailable ones in under 6 minutes, zero crashes. 50 tests passing, ruff clean.
+
+**v0.9 note:** Milestone 4 (testing/hardening) is done, modulo T4.2's real-target-library scale
+gap (documented below, not blocking). T4.1's manual interrupt testing found and fixed a genuine
+bug — see its entry for details; this is exactly what this milestone exists for. T4.3 confirmed
+GPS/capture-date survive the copy with real GPS-tagged assets, both with and without exiftool.
+53 tests passing, ruff clean. Milestone 5 (documentation) is next and is the last one in this
+tasks doc.
 
 **v0.2 note:** Milestone 0 (T0.1, T0.2) has been executed against a real library on this
 machine, ahead of the rest of implementation — see results inline below and the full writeup in
@@ -311,12 +316,33 @@ spike library at full scale, not just small samples.
 
 ## Milestone 4 — Testing & Hardening
 
-### T4.1 — End-to-end idempotency test
+### T4.1 — End-to-end idempotency test — ✅ DONE, found and fixed a real bug
 
 Full run → interrupt mid-run (kill the process) → re-run → verify no duplicate/corrupt output
 and eventual completion. Exercises NFR-4 directly.
 
-### T4.2 — Large-library smoke test
+- **Found a real gap via manual `kill -9` testing**: a crash can leave a file successfully
+  moved into its final deterministic path with no tracking row ever flushed for it (e.g. killed
+  before the first periodic flush). On resume, the old behavior treated the pre-existing file as
+  a hard collision and errored — forever, since every retry hits the same collision. That
+  directly violates "eventual completion."
+- **Fixed** in `stager.py`'s `_stage_component()`: when the computed target path already
+  exists, compare checksums between the fresh export and the existing file. Matching content
+  means a prior interrupted run already finished this exact file — adopt it (no re-move, no
+  error). Content that genuinely differs still fails loudly rather than silently overwriting,
+  preserving design.md Section 5.4's original intent for true collisions.
+- Verified `PhotoInfo.export()` is deterministic (same settings -> byte-identical output across
+  repeated calls) before trusting the checksum-match approach — confirmed directly against the
+  real spike library.
+- Two regression tests added: `test_orphaned_staged_file_with_matching_content_is_adopted_not_errored`
+  and `test_genuine_collision_with_different_content_still_errors` (fast, deterministic, fakes).
+- Plus the real thing: `tests/test_interrupt_recovery.py` launches a genuine OS subprocess
+  against a small real sample (8 available assets from the spike library), sends actual
+  `SIGKILL` (no Python cleanup code runs at all), then resumes and verifies no duplication, no
+  corrupted tracking CSV, previously-copied files stay copied, and every row reaches a terminal
+  status. Passes.
+
+### T4.2 — Large-library smoke test — partially done; real target library not reachable from here
 
 Run against the largest real target library — `Photos_2017-2024.photoslibrary`, 46,141 assets
 (55% Live Photos), confirmed via T0.3 — to sanity check NFR-3 (memory stays bounded — spot-check
@@ -325,10 +351,43 @@ across all 6 libraries into one shared `target_root`/tracking file (~139,000 ass
 an even better real-world test, since that's the realistic usage pattern implied by the
 libraries' date-range naming.
 
-### T4.3 — Metadata spot-check
+- **Constraint discovered while starting this task**: the actual named library lives on the
+  external drive attached to the user's *other* Mac (T0.3), which isn't mounted or reachable
+  from this environment. Ran the memory/runtime smoke test against the spike library instead
+  (10,267 assets, real data, just not the literal named target) — full run under `/usr/bin/time
+  -l`: **295.8s wall time, 369MB peak memory footprint (508MB max RSS)** for 14,335 total
+  component attempts (1,025 real copies + 13,310 fast-failing "not available" attempts). Memory
+  stayed well bounded, consistent with the streaming design (NFR-3) — no sign of unbounded
+  growth.
+- **Not done**: the 46K/139K-asset real-scale run and its memory/runtime numbers specifically.
+  This would need the user to either run the tool themselves on the other Mac, or provide
+  access. Deliberately not asking for this proactively right now — a full real run there means
+  real disk usage and real files created before Milestone 5 has even documented where
+  `target_root` should live or how to wire up the Amazon Photos Backup folder. The user's actual
+  first real production run (once they're ready, after Milestone 5) will be a far more
+  meaningful validation of this than a smoke test requested in isolation.
+
+### T4.3 — Metadata spot-check — ✅ DONE
 
 Manually inspect a handful of staged files' EXIF (`exiftool` or `mdls`) to confirm GPS/capture
 date survived the copy (FR-4), exercising both the exiftool-present and exiftool-absent paths.
+
+- Found 3 real assets in the spike library with genuine GPS coordinates (the library has zero
+  real keywords or named persons anywhere, confirmed by an exhaustive scan — same finding as the
+  Milestone 0 spike, so the keyword/person exiftool-enrichment path still has no positive
+  real-data test available; the mechanism itself was already confirmed to run without error in
+  Milestone 0).
+- Staged with `exiftool_available=True`: `exiftool` readback matched the source GPS coordinates
+  exactly (e.g. source `(40.7739, -74.3989)` -> staged file's `GPSLatitude`/`GPSLongitude` of
+  `40°46'26.05"N`/`74°23'55.91"W`, which convert back to the same value), plus correct
+  `DateTimeOriginal` and camera `Make`/`Model`.
+- Staged the **same kind of asset with `exiftool_available=False`**: GPS and capture date still
+  present and correct, confirming FR-4's "MUST" (embedded EXIF preservation via direct byte
+  copy) is fully independent of the optional exiftool "SHOULD" enrichment.
+- Cross-checked one file with `mdls` too, per the DoD's suggested alternative tool: it returned
+  null/wrong values, but that's `/tmp` not being Spotlight-indexed and the file being
+  milliseconds old — an artifact of the indexing lag, not a real metadata gap (`exiftool` reads
+  embedded bytes directly with no such lag, and already gave the authoritative, correct answer).
 
 ## Milestone 5 — Documentation & Handoff
 

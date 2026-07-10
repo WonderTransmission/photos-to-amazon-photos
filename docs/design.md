@@ -1,6 +1,6 @@
 # Design: Photos-to-Amazon-Photos Preparer
 
-Status: Draft (v0.4) — under review
+Status: Draft (v0.5) — under review
 Phase: 2 of 3 (Requirements → **Design** → Tasks)
 
 This document describes *how* [`requirements.md`](requirements.md) gets implemented. It
@@ -203,8 +203,13 @@ Example: `2024-05-14_IMG_1234_a1b2c3d4.HEIC`.
 - The 8-hex-char UUID fragment guarantees deterministic, collision-resistant uniqueness across
   repeated runs, without the ugliness of a full UUID. Collision probability at realistic
   personal-library sizes (tens of thousands of assets) is negligible; the stager still asserts
-  uniqueness at write time and fails loudly (marks that row `status=error`) rather than silently
-  overwriting, in the unlikely event of a collision.
+  uniqueness at write time in the unlikely event of a collision. **Refined during Milestone 4's
+  T4.1 interrupt testing**: a target path already being occupied isn't automatically a genuine
+  collision — a crash can legitimately leave a file successfully staged with no tracking row
+  ever flushed for it, and the next run would otherwise hit its own output and error forever,
+  never reaching completion. The stager now compares checksums: matching content means "a prior
+  interrupted run already finished this," and it's adopted rather than erroring; content that
+  actually differs still fails loudly (`status=error`) rather than silently overwriting.
 - Extension is preserved as-is from the exported file (no transcoding — consistent with FR-3's
   "highest quality").
 

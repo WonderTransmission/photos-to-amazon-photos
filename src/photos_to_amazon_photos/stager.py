@@ -95,13 +95,31 @@ def _stage_component(
             )
             final_path = target_root / rel
             final_path.parent.mkdir(parents=True, exist_ok=True)
-            if final_path.exists():
-                # docs/design.md Section 5.4: fail loudly rather than silently overwrite.
-                raise FileExistsError(f"target already exists: {final_path}")
-            shutil.move(str(p), str(final_path))
-            size = final_path.stat().st_size
-            checksum = _sha256(final_path)
             is_motion = ext.lower() in _MOTION_EXTENSIONS
+
+            if final_path.exists():
+                # The deterministic path is already occupied. This legitimately happens after
+                # a crash: a prior run can move a file into place and then be killed before its
+                # tracking row is ever flushed (found via docs/tasks.md T4.1's interrupt test).
+                # Since the path is a pure function of (media_type, component, date, uuid, ext),
+                # matching content here means "a previous run already finished this" -- adopt
+                # it rather than erroring, so resume actually reaches eventual completion.
+                # Content that DIFFERS is a genuine collision and still fails loudly rather
+                # than silently overwriting (docs/design.md Section 5.4).
+                existing_checksum = _sha256(final_path)
+                new_checksum = _sha256(Path(p))
+                if existing_checksum != new_checksum:
+                    raise FileExistsError(
+                        f"target already exists with different content: {final_path}"
+                    )
+                size = final_path.stat().st_size
+                checksum = existing_checksum
+                Path(p).unlink()
+            else:
+                shutil.move(str(p), str(final_path))
+                size = final_path.stat().st_size
+                checksum = _sha256(final_path)
+
             moved.append((rel, size, checksum, is_motion))
 
         if len(moved) == 1:

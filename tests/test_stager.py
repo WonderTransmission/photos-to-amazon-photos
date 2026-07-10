@@ -1,6 +1,8 @@
 from datetime import datetime
 from pathlib import Path
 
+import pytest
+
 from photos_to_amazon_photos import stager, tracking
 from photos_to_amazon_photos.library_reader import AssetView
 
@@ -240,3 +242,53 @@ def test_dry_run_writes_nothing(tmp_path):
     assert len(photo.export_calls) == 0
     assert not target_root.exists()
     assert not tracking_path.exists()
+
+
+def test_orphaned_staged_file_with_matching_content_is_adopted_not_errored(tmp_path):
+    """Found via the T4.1 interrupt test: a crash can leave a file successfully moved into
+    place with no tracking row ever flushed for it. Resume must adopt matching content rather
+    than erroring forever on a collision -- otherwise the tool never reaches eventual
+    completion for that asset."""
+    target_root = tmp_path / "target"
+    tracking_path = target_root / "tracking.csv"
+    target_root.mkdir(parents=True)
+    asset, _ = make_asset(uuid="U1")
+
+    # Stage directly, bypassing all tracking bookkeeping -- simulates the file having been
+    # moved into place right before a SIGKILL, with no row ever recorded.
+    orphan_row = stager._stage_component(
+        asset, tracking.SINGLE, target_root, exiftool_available=False, library_path_str="/fake/lib"
+    )
+    assert (target_root / orphan_row.target_relative_path).exists()
+
+    # Resume with a fresh AssetView/FakePhoto for the same uuid -- matching how a real
+    # osxphotos re-export independently reproduces identical bytes for the same asset
+    # (verified directly against the real spike library: export() is deterministic given the
+    # same settings).
+    asset2, photo2 = make_asset(uuid="U1")
+    summary = stager.run("/fake/lib", target_root, tracking_path, assets=[asset2])
+
+    assert summary.counts[("photo", stager.COPIED)] == 1
+    assert summary.counts[("photo", stager.ERROR)] == 0
+    row = tracking.load(tracking_path).get("U1", tracking.SINGLE)
+    assert row.status == tracking.COPIED
+    assert row.checksum_sha256 == orphan_row.checksum_sha256
+
+
+def test_genuine_collision_with_different_content_still_errors(tmp_path):
+    target_root = tmp_path / "target"
+    target_root.mkdir(parents=True)
+    asset1, _ = make_asset(uuid="U1", still=("export.HEIC", b"content A"))
+    stager._stage_component(
+        asset1, tracking.SINGLE, target_root, exiftool_available=False, library_path_str="/fake/lib"
+    )
+
+    asset2, _ = make_asset(uuid="U1", still=("export.HEIC", b"content B, genuinely different"))
+    with pytest.raises(FileExistsError, match="different content"):
+        stager._stage_component(
+            asset2,
+            tracking.SINGLE,
+            target_root,
+            exiftool_available=False,
+            library_path_str="/fake/lib",
+        )
