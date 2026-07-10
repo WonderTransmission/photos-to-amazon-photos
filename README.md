@@ -135,8 +135,9 @@ pip install -e ".[dev]"
 ```
 
 ```sh
-pytest                  # run tests (some are skipped unless run on a machine with a real
-                         # Photos library at the path hardcoded in the integration tests)
+pytest                                          # run tests
+PHOTOS_TEST_LIBRARY="/path/to/Your Library.photoslibrary" pytest   # also run the integration
+                                                                    # tests against a real library
 ruff check .             # lint
 ruff format .            # format
 ```

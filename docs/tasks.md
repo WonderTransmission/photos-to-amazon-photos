@@ -119,9 +119,11 @@ secondary/receiving Mac (design.md Section 11.4), is the **availability picture*
 currently assumes.
 
 - `scripts/validate_library.sh` was run by the user against all 6 real target libraries on the
-  external drive (not just one), with output collected in `scripts/validate_library_output.txt`.
-  Covered T0.1's enumeration (classification counts, `ismissing`/`path` resolution rates by
-  media type, UUID uniqueness) and T0.2's date-heuristic spot-check in one pass per library.
+  external drive (not just one). Covered T0.1's enumeration (classification counts,
+  `ismissing`/`path` resolution rates by media type, UUID uniqueness) and T0.2's date-heuristic
+  spot-check in one pass per library. (The raw output file was removed from the repo after the
+  fact — it contained real machine/username/drive-name details not appropriate for a public
+  repo; the findings it supported are recorded in prose throughout this document and design.md.)
 - The target libraries live on an **external drive** — the script accounted for this: it falls
   back to a direct `/Volumes` filesystem search if Spotlight-based discovery finds nothing
   (common when indexing is off for an external drive), and reports the volume's filesystem

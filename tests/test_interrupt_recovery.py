@@ -12,6 +12,7 @@ test_stager.py. This test is the slower, real-OS-process version of the same sce
 Skipped entirely if the spike library isn't present on this machine.
 """
 
+import os
 import signal
 import subprocess
 import sys
@@ -22,11 +23,11 @@ import pytest
 
 from photos_to_amazon_photos import tracking
 
-SPIKE_LIBRARY = "/Users/YOUR_USERNAME/Pictures/Photos Library.photoslibrary"
+SPIKE_LIBRARY = os.environ.get("PHOTOS_TEST_LIBRARY", "")
 
 pytestmark = pytest.mark.skipif(
-    not Path(SPIKE_LIBRARY).is_dir(),
-    reason="spike library not present on this machine",
+    not SPIKE_LIBRARY or not Path(SPIKE_LIBRARY).is_dir(),
+    reason="PHOTOS_TEST_LIBRARY not set or not present on this machine",
 )
 
 _DRIVER = """

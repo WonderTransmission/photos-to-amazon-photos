@@ -8,15 +8,17 @@ photo=5737 video=462 live_photo=4068, 10267 total, 0 errors.
 Skipped entirely if this machine doesn't have that library (e.g. a fresh clone elsewhere).
 """
 
+import os
+
 import pytest
 
 from photos_to_amazon_photos.library_reader import LIVE_PHOTO, PHOTO, VIDEO, LibraryReader
 
-SPIKE_LIBRARY = "/Users/YOUR_USERNAME/Pictures/Photos Library.photoslibrary"
+SPIKE_LIBRARY = os.environ.get("PHOTOS_TEST_LIBRARY", "")
 
 pytestmark = pytest.mark.skipif(
-    not __import__("pathlib").Path(SPIKE_LIBRARY).is_dir(),
-    reason="spike library not present on this machine",
+    not SPIKE_LIBRARY or not __import__("pathlib").Path(SPIKE_LIBRARY).is_dir(),
+    reason="PHOTOS_TEST_LIBRARY not set or not present on this machine",
 )
 
 

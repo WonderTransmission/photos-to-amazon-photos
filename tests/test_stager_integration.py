@@ -8,6 +8,7 @@ Skipped entirely if this machine doesn't have that library (e.g. a fresh clone e
 """
 
 import itertools
+import os
 from pathlib import Path
 
 import pytest
@@ -15,12 +16,12 @@ import pytest
 from photos_to_amazon_photos import stager
 from photos_to_amazon_photos.library_reader import LibraryReader
 
-SPIKE_LIBRARY = "/Users/YOUR_USERNAME/Pictures/Photos Library.photoslibrary"
+SPIKE_LIBRARY = os.environ.get("PHOTOS_TEST_LIBRARY", "")
 SAMPLE_SIZE = 15
 
 pytestmark = pytest.mark.skipif(
-    not Path(SPIKE_LIBRARY).is_dir(),
-    reason="spike library not present on this machine",
+    not SPIKE_LIBRARY or not Path(SPIKE_LIBRARY).is_dir(),
+    reason="PHOTOS_TEST_LIBRARY not set or not present on this machine",
 )
 
 
