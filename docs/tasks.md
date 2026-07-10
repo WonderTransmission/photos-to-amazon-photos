@@ -1,6 +1,6 @@
 # Tasks: Photos-to-Amazon-Photos Preparer
 
-Status: Draft (v0.9) — under review
+Status: v1.0 — complete
 Phase: 3 of 3 (Requirements → Design → **Tasks**)
 
 **v0.6 note:** Milestone 1 (T1.1, T1.2) is done — project scaffolding exists and is verified
@@ -20,8 +20,13 @@ unavailable ones in under 6 minutes, zero crashes. 50 tests passing, ruff clean.
 gap (documented below, not blocking). T4.1's manual interrupt testing found and fixed a genuine
 bug — see its entry for details; this is exactly what this milestone exists for. T4.3 confirmed
 GPS/capture-date survive the copy with real GPS-tagged assets, both with and without exiftool.
-53 tests passing, ruff clean. Milestone 5 (documentation) is next and is the last one in this
-tasks doc.
+53 tests passing, ruff clean.
+
+**v1.0 note:** Milestone 5 (documentation) is done — README rewritten with real usage
+instructions and `docs/upload-setup.md` added. All five milestones in this document are
+complete. The one open, non-blocking item carried forward is T4.2's real-target-library scale
+validation (46K/139K assets on the user's other Mac) — left for the user's actual first
+production run rather than a separate smoke test requested in isolation.
 
 **v0.2 note:** Milestone 0 (T0.1, T0.2) has been executed against a real library on this
 machine, ahead of the rest of implementation — see results inline below and the full writeup in
@@ -391,16 +396,35 @@ date survived the copy (FR-4), exercising both the exiftool-present and exiftool
 
 ## Milestone 5 — Documentation & Handoff
 
-### T5.1 — README usage section
+### T5.1 — README usage section — ✅ DONE
 
 Install instructions (Python 3.14, optional `exiftool` via Homebrew), example invocation,
 example resulting directory tree, a note on quitting Photos.app first (NFR-6), and the
 ignore-a-photo workflow (hand-edit `tracking.csv`, FR-9).
 
-### T5.2 — Amazon Photos Backup folder setup notes
+- README rewritten with Installation, Usage (including the flag table, a "Before running"
+  preconditions section covering NFR-6/7/8, and a real example directory tree drawn from actual
+  observed output rather than a fabricated one), and Ignoring a photo (FR-9, including the
+  Live Photo ignore-propagation behavior implemented in Milestone 3).
+- The NFR-6 note reflects its actual current status (recommended, not required, per T0.3's
+  findings) rather than the original, more conservative "MUST quit" language — the docs stay
+  consistent with what was actually decided, not what was originally assumed.
+
+### T5.2 — Amazon Photos Backup folder setup notes — ✅ DONE
 
 Short walkthrough (README section or `docs/upload-setup.md`) of pointing the Amazon Photos
 desktop app's Backup feature at `<target_root>/photos/`, per design.md Section 10.
+
+- Written as `docs/upload-setup.md` (separate doc, linked from the README) rather than a README
+  section, since the README was already getting long and this is a distinct, skippable
+  walkthrough. Covers one-time setup and the day-to-day workflow (run tool -> Backup picks it
+  up -> safe to delete local copies once confirmed uploaded), and is explicit that `video/` and
+  `live_photo/` aren't covered by this feature (per design.md Section 10's table).
+
+**Milestone 5 is now complete — this closes out the tasks doc.** Requirements -> Design ->
+Tasks -> Implementation -> Testing -> Documentation is done end to end, validated against real
+Photos libraries at every stage that allowed it. See requirements.md Section 10 for what was
+deliberately left out of v1.
 
 ## Explicitly Not in This Tasks Doc
 
