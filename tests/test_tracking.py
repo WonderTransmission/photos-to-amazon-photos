@@ -58,6 +58,24 @@ def test_decision_error_is_process():
     assert index.decision("U1", "single") == Process()
 
 
+def test_remove_forces_reprocessing():
+    index = TrackingIndex()
+    index.upsert(make_row(uuid="U1", status="copied", timestamp_processed=NOW))
+    assert index.decision("U1", "single") == Skip("copied")
+
+    index.remove("U1", "single")
+
+    assert index.get("U1", "single") is None
+    assert index.decision("U1", "single") == Process()
+    assert len(index) == 0
+
+
+def test_remove_missing_row_is_a_noop():
+    index = TrackingIndex()
+    index.remove("does-not-exist", "single")  # must not raise
+    assert len(index) == 0
+
+
 def test_decision_is_scoped_to_uuid_and_component():
     index = TrackingIndex()
     index.upsert(

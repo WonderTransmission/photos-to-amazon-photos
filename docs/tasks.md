@@ -1,6 +1,6 @@
 # Tasks: Photos-to-Amazon-Photos Preparer
 
-Status: v1.0.2 — complete, with one post-release fix revised twice (see Post-v1.0 Fixes below)
+Status: v1.0.3 — complete, with a remediation tool added for the post-release date-heuristic fix
 Phase: 3 of 3 (Requirements → Design → **Tasks**)
 
 **v0.6 note:** Milestone 1 (T1.1, T1.2) is done — project scaffolding exists and is verified
@@ -465,12 +465,17 @@ correct, verifiable embedded EXIF dates (user-reported, confirmed via `exiftool`
 - `scripts/verify_date_heuristic_fix.sh` stays in the repo — re-run it against any other real
   library before trusting this heuristic there. It's what caught the second bug before it ever
   reached production data.
-- **Not retroactive**: assets already staged under an earlier heuristic version
-  (`status=copied` in `tracking.csv`) are not moved by re-running the tool — FR-7's skip rule
-  doesn't distinguish which version produced a row. Remediating already-misplaced files requires
-  clearing their tracking rows (and the stray files) so they get reprocessed under the fixed
-  logic. No dedicated tool for this exists yet as of this writing — candidate for a future
-  addition, alongside [T5's ignore-subcommand idea](requirements.md#10-future-enhancements).
+- **Not retroactive, but now remediable**: assets already staged under an earlier heuristic
+  version (`status=copied` in `tracking.csv`) are not moved by re-running the tool — FR-7's skip
+  rule doesn't distinguish which version produced a row. `scripts/remediate_undated.sh` finds
+  every `status=copied` row whose `target_relative_path` sits directly under a `_undated/`
+  directory, deletes the associated file(s) (including a Live Photo `live_bundle` row's paired
+  `.mov`, found via the same-basename convention — a plain tracking-CSV edit alone would miss
+  it), and clears those rows so a normal re-run reprocesses them under the fixed heuristic.
+  Defaults to a dry-run report; `--apply` is required to actually change anything, and backs up
+  `tracking.csv` first. Required adding a small `TrackingIndex.remove()` method to `tracking.py`
+  (tested), since removing a row wasn't previously a supported operation — normal staging never
+  needs to remove rows, only this kind of one-off remediation does.
 
 ## Explicitly Not in This Tasks Doc
 

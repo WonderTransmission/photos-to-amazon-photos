@@ -155,6 +155,12 @@ class TrackingIndex:
     def upsert(self, row: TrackingRow) -> None:
         self._rows[row.key] = row
 
+    def remove(self, photo_uuid: str, component: str) -> None:
+        """Remove a row, if present -- e.g. to force reprocessing on the next run (used by
+        remediation tooling; not part of normal staging, which never removes rows). No-op if
+        the row doesn't exist."""
+        self._rows.pop((photo_uuid, component), None)
+
     def rows(self) -> list[TrackingRow]:
         return list(self._rows.values())
 
