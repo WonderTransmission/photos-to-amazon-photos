@@ -1,6 +1,6 @@
 # Design: Photos-to-Amazon-Photos Preparer
 
-Status: Draft (v0.5) — under review
+Status: v0.6 — describes a shipped v1.0 tool, with one post-release fix recorded
 Phase: 2 of 3 (Requirements → **Design** → Tasks)
 
 This document describes *how* [`requirements.md`](requirements.md) gets implemented. It
@@ -29,6 +29,14 @@ non-issue in practice (0.023% unavailable across 138,893 assets), the video `ism
 confirmed spike-library-specific, and NFR-6 is downgraded from a hard precondition to a
 recommendation based on 3 successful real runs with Photos.app open. No open items remain from
 the original compatibility/availability risk thread.
+
+**v0.6 note (post-v1.0):** a real production run against the actual 46,141-asset target library
+surfaced a genuine bug in the date/undated heuristic — ~1,000 assets with correct embedded dates
+were misrouted to `_undated/`. Root-caused, fixed, and re-validated far more rigorously than the
+original Milestone 0 spike — see [Section 5.2](#52-date-resolution--the-undated-heuristic) and
+[Section 11.3](#113-date-heuristic-accuracy--revised-after-a-real-production-false-positive) for
+the full story. The fix is forward-only; already-staged files aren't retroactively moved — see
+tasks.md's post-v1.0 section for remediation options.
 
 ## 1. Architecture Overview
 
@@ -127,49 +135,76 @@ assigns *something*), but osxphotos exposes no flag distinguishing a true captur
 library-import fallback. `PhotoInfo.date_added` (when the asset was added to the Photos
 library) is available separately and can itself be `None`.
 
-Heuristic:
+**v1 heuristic (Milestone 0, since superseded — kept here for history):** compared `photo.date`
+against `photo.date_added` with a 60-second window, on the theory that a `date` close to
+`date_added` meant no real capture date existed. Validated at the time against 36 real assets
+(30 with camera EXIF, 6 screenshots) with 100% agreement. That sample didn't happen to include
+recently-synced photos, and the assumption doesn't hold for them: a photo captured on a device
+with iCloud Photos actively syncing can be added to the library within seconds of capture, so
+`date` and `date_added` land close together *even when the photo has a completely legitimate
+EXIF capture date*. Running against a real 46,141-asset production library surfaced this: ~1,000
+assets misrouted to `_undated/` despite having correct embedded dates. A rigorous recheck against
+this project's own real spike-library data (681 available assets) found the v1 heuristic's
+false-positive rate among its "undated" classifications was **~79%** (27 of 34).
+
+**v2 heuristic (current):** uses `PhotoInfo.date_original` instead of `date` for the comparison.
+osxphotos sets `date_original` from EXIF at import time, and — critically — falls back to
+*exactly* mirroring `date_added` (matching to the microsecond) only when there was no EXIF date
+at all:
 
 ```
 if photo.date_added is None:
     date_source = "photos_date"   # no fallback signal to compare against; trust date as-is
-elif abs(photo.date - photo.date_added) < UNDATED_THRESHOLD:   # 60 seconds, validated below
-    date_source = "library_added" # date looks like an import-time fallback, not a real capture time
+elif abs(photo.date_original - photo.date_added) < UNDATED_THRESHOLD:   # now 2 seconds
+    date_source = "library_added" # date_original is a pure copy of date_added: no real EXIF date existed
 else:
     date_source = "photos_date"
 
-date_taken = photo.date
+date_taken = photo.date   # still `date`, not `date_original` -- see below
 is_undated = (date_source == "library_added")
 ```
 
-`is_undated` assets are routed to `_undated/` instead of `YYYY/MM/` (FR-5); `date_source` is
-recorded either way for auditability.
+`date_taken` (what actually gets used for the folder/filename) still comes from `photo.date`,
+not `photo.date_original` — `date` is Photos' *current* value, which reflects any date the user
+has manually corrected in Photos.app, while `date_original` is frozen at import time. We want
+the folder to reflect the user's corrected date if they ever fixed one; we only want
+`date_original` for deciding *whether a real signal ever existed*, which correction wouldn't
+change (`date_original` isn't touched by later user edits, so it stays a reliable "was this
+EXIF-or-equivalent at import" signal even for later-corrected assets — no such assets were
+observed in the validation library, so this is reasoned, not independently confirmed).
 
-**Naming note:** the earlier draft of this heuristic called the "trustworthy" branch `exif`.
-Validation (below) showed that's slightly wrong — Photos assigns accurate per-asset dates from
-sources other than camera EXIF too (e.g., screenshots have no `DateTimeOriginal` tag at all, but
-`photo.date` reliably matches the capture timestamp embedded in their filename). The column value
-is renamed `photos_date` to mean "Photos has a specific, trustworthy timestamp for this asset,
-regardless of source," as distinct from `library_added` ("Photos fell back to when it was
-imported").
+**Re-validated** against the same real library used for the original Milestone 0 spike, this
+time rigorously (all 681 available assets, not just a 36-asset sample), cross-checked two
+independent ways:
 
-**Validated** against the real target library (macOS Tahoe 26.5, Photos v11, 10,267 assets) as
-part of the tasks doc's Milestone 0 spike:
+- Ground truth via `PhotoInfo.exif_info.date` (Photos' own record of whether real EXIF date
+  metadata existed at import): of 681 assets, exactly 22 had no real EXIF-or-equivalent signal;
+  659 did.
+- Ground truth via the `date_original`/`date_added` gap itself: exactly 6 assets showed a gap of
+  **precisely 0.000 seconds** (down to the microsecond) — these are the true "Photos had nothing,
+  fell back to import time" cases. Every other asset's gap starts at **4.42 seconds** and goes up
+  from there (into hours, for some screenshots — see below) — a clean split with nothing in
+  between across the entire dataset. `UNDATED_THRESHOLD = 2` seconds sits safely in that gap; it's
+  a small safety margin against floating-point/timezone-conversion jitter, not a boundary expected
+  to matter in practice.
+- The discrepancy between the two ground truths (22 vs. 6) is fully explained, not a bug: 16
+  screenshots/PNGs have no camera EXIF (correctly `exif_info.date is None`) but Photos still
+  derives an accurate `date`/`date_original` for them from OS-level metadata, matching the
+  original Milestone 0 finding for screenshots specifically. These showed gaps of exactly 4 or 5
+  *hours* (14400s / 18000s — a timezone-handling quirk, not real capture-time jitter) between
+  `date_original` and `date_added`, nowhere near the 2-second threshold either way — so they were
+  never actually at risk of misclassification under either heuristic version. Locked in as an
+  explicit regression test regardless.
+- Running the actual fixed `date_resolver.resolve()` against the whole 681-asset set: **34 → 6**
+  assets flagged undated, exactly matching the true no-signal-at-all count from the `exif_info`
+  cross-check. Zero false positives, zero false negatives, on this dataset.
 
-- 30 randomly-sampled photos/videos with genuine camera EXIF: heuristic classified all 30 as
-  `photos_date`, and all 30 independently had a real embedded `DateTimeOriginal`/`CreateDate`
-  confirmed via `exiftool` — 100% agreement with ground truth.
-- 6 screenshots (the archetypal "no camera EXIF" case): 5 were classified `photos_date` and 1
-  `library_added`. Cross-checking the 5 against their filename-embedded timestamps (macOS
-  screenshot filenames encode the exact capture time, e.g. `Screenshot 2022-05-20 at 2.52.02
-  PM.jpeg`) confirmed `photo.date` matched within seconds for all 5 — genuinely accurate dates,
-  correctly *not* routed to `_undated/` despite having no camera EXIF. The 1 classified
-  `library_added` had no such correlation — a genuine fallback case, correctly caught.
-- `UNDATED_THRESHOLD = 60` seconds is confirmed as a reasonable default: every genuine-date case
-  in the sample differed from `date_added` by minutes to years; the one genuine fallback case
-  matched `date_added` closely enough to trigger the threshold correctly.
-
-No further tuning identified as necessary from this sample. See [Section 11.3](#113-date-heuristic-accuracy)
-for residual caveats.
+**Known limitation, not yet resolved:** this fix is not retroactive. Assets already staged under
+the v1 heuristic with `status=copied` in `tracking.csv` are not reprocessed by re-running the
+tool — FR-7's skip rule applies regardless of which heuristic version produced the row. Moving
+already-misplaced files requires either manually clearing their tracking rows (and the stray
+files) so they get reprocessed, or accepting them as correctly-dated-but-wrong-folder until a
+dedicated remediation path exists (see tasks.md's post-v1.0 section).
 
 ### 5.3 Photos.app concurrency check (resolves the "may revisit in design" note on NFR-6)
 
@@ -386,11 +421,18 @@ additional dedup complexity for v1 (consistent with [NG3](requirements.md#3-non-
 The spike's uniqueness check (10,267 assets, 10,267 unique UUIDs) is consistent with this being
 a non-issue in practice, at least at a single point in time.
 
-### 11.3 Date heuristic accuracy — validated
+### 11.3 Date heuristic accuracy — revised after a real production false-positive
 
-Covered in [Section 5.2](#52-date-resolution--the-undated-heuristic): validated against 36 real
-assets (30 with camera EXIF, 6 screenshots) with independent ground truth, 100% agreement.
-`UNDATED_THRESHOLD = 60` seconds confirmed as a reasonable default; no further tuning identified.
+Originally: validated against 36 real assets (30 with camera EXIF, 6 screenshots) with
+independent ground truth, 100% agreement, `UNDATED_THRESHOLD = 60` seconds. **That validation
+was real but incomplete** — the 36-asset sample didn't include recently-synced photos, the
+specific case the v1 heuristic got wrong. A real 46,141-asset production run surfaced ~1,000
+misclassified assets. Root-caused, fixed, and re-validated far more rigorously (681 real assets,
+two independent ground truths, zero false positives/negatives) — full writeup in
+[Section 5.2](#52-date-resolution--the-undated-heuristic). Lesson for future changes to this
+heuristic: a small hand-picked validation sample can look like 100% agreement while missing an
+entire common case; prefer checking against the *full* available real dataset when feasible, not
+just a sample chosen to span "obviously different" categories.
 
 ### 11.4 Library composition: this spike library was not representative
 

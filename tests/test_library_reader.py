@@ -19,6 +19,7 @@ def fake_photo(**overrides):
         hasadjustments=False,
         date=datetime(2024, 5, 14, 12, 0, 0),
         date_added=datetime(2024, 5, 15, 8, 0, 0),
+        date_original=datetime(2024, 5, 14, 12, 0, 0),
         path="/fake/path/IMG_0001.HEIC",
         path_edited=None,
     )
@@ -65,6 +66,7 @@ def test_asset_view_export_passes_through_to_photo():
         hasadjustments = False
         date = datetime(2024, 5, 14, 12, 0, 0)
         date_added = None
+        date_original = datetime(2024, 5, 14, 12, 0, 0)
         path = "/fake/IMG_0002.HEIC"
         path_edited = None
 

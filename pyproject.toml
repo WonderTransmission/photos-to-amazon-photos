@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "photos-to-amazon-photos"
-version = "0.1.0"
+version = "0.1.1"
 description = "Stage photos, videos, and Live Photos from a local macOS Photos library for upload to Amazon Photos (and S3/Glacier for video)."
 readme = "README.md"
 license = "MIT"

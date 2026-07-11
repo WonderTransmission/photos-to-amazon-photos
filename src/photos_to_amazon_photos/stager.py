@@ -72,7 +72,9 @@ def _stage_component(
     exiftool_available: bool,
     library_path_str: str,
 ) -> TrackingRow:
-    date_taken, date_source, is_undated = date_resolver.resolve(asset.date, asset.date_added)
+    date_taken, date_source, is_undated = date_resolver.resolve(
+        asset.date, asset.date_added, asset.date_original
+    )
     original_stem = Path(asset.original_filename).stem
     want_motion = component == tracking.LIVE_BUNDLE
 

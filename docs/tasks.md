@@ -1,6 +1,6 @@
 # Tasks: Photos-to-Amazon-Photos Preparer
 
-Status: v1.0 — complete
+Status: v1.0.1 — complete, with one post-release fix (see Post-v1.0 Fixes below)
 Phase: 3 of 3 (Requirements → Design → **Tasks**)
 
 **v0.6 note:** Milestone 1 (T1.1, T1.2) is done — project scaffolding exists and is verified
@@ -427,6 +427,39 @@ desktop app's Backup feature at `<target_root>/photos/`, per design.md Section 1
 Tasks -> Implementation -> Testing -> Documentation is done end to end, validated against real
 Photos libraries at every stage that allowed it. See requirements.md Section 10 for what was
 deliberately left out of v1.
+
+## Post-v1.0 Fixes
+
+### PV1 — Date heuristic false positives (undated misclassification) — ✅ FIXED
+
+Real-world finding, not part of the original milestone plan: a real production run against the
+actual 46,141-asset target library landed roughly 1,000 assets in `_undated/` despite having
+correct, verifiable embedded EXIF dates (user-reported, confirmed via `exiftool` on a sample).
+
+- **Root cause**: the T2.2/Milestone 0 date heuristic compared `date` to `date_added` with a
+  60-second window, assuming closeness meant "no real date." That's wrong for photos captured
+  on a device with iCloud Photos actively syncing — "added to library" can legitimately happen
+  within seconds of capture, so the window caught genuinely-dated fast-synced photos too.
+- **Fix**: switched to comparing `date_original` (osxphotos's EXIF-at-import value, which
+  mirrors `date_added` *exactly* only when there was no real EXIF date) against `date_added`,
+  with a much tighter threshold (2s vs. 60s). Full technical writeup, including the two
+  independent ground-truth checks used to validate it (`exif_info.date` presence, and the raw
+  gap distribution across all 681 real available assets on the original spike library) is in
+  design.md [Section 5.2](design.md#52-date-resolution--the-undated-heuristic).
+- **Result**: re-running the actual fixed code against the same 681-asset real dataset:
+  34 → 6 assets flagged undated, matching the true no-signal count exactly (verified two
+  independent ways). Zero false positives, zero false negatives observed.
+- Touched: `date_resolver.py` (new `date_original` parameter, tighter threshold),
+  `library_reader.py` (`AssetView` gained a `date_original` field), `stager.py` (call site
+  updated), all affected tests updated/added (`test_date_resolver.py` rewritten with regression
+  tests for the exact false-positive pattern and the screenshot edge case that turned out to
+  never actually be at risk).
+- **Not retroactive**: assets already staged under the old heuristic (`status=copied` in
+  `tracking.csv`) are not moved by re-running the tool — FR-7's skip rule doesn't distinguish
+  which heuristic version produced a row. Remediating already-misplaced files requires clearing
+  their tracking rows (and the stray files) so they get reprocessed under the fixed logic. No
+  dedicated tool for this exists yet as of this writing — candidate for a future addition if
+  needed again, alongside [T5's ignore-subcommand idea](requirements.md#10-future-enhancements).
 
 ## Explicitly Not in This Tasks Doc
 

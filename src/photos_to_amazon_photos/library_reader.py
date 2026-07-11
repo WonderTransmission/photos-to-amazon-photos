@@ -29,6 +29,7 @@ class AssetView:
     hasadjustments: bool
     date: datetime
     date_added: datetime | None
+    date_original: datetime
     path: str | None
     path_edited: str | None
     _photo: Any
@@ -71,6 +72,7 @@ def _to_asset_view(photo: Any) -> AssetView:
         hasadjustments=photo.hasadjustments,
         date=photo.date,
         date_added=photo.date_added,
+        date_original=photo.date_original,
         path=photo.path,
         path_edited=photo.path_edited,
         _photo=photo,
