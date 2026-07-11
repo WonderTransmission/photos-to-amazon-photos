@@ -1,6 +1,6 @@
 # Tasks: Photos-to-Amazon-Photos Preparer
 
-Status: v1.0.4 — complete, plus a remediation tool and dual stdout/file logging added post-release
+Status: v1.0.5 — complete, plus a remediation tool, dual logging, and progress logging post-release
 Phase: 3 of 3 (Requirements → Design → **Tasks**)
 
 **v0.6 note:** Milestone 1 (T1.1, T1.2) is done — project scaffolding exists and is verified
@@ -496,6 +496,28 @@ shutdown, crash) before the terminal could be checked.
   implementation broke `caplog`-based tests (pytest's log-capture fixture attaches its own root
   handler) before it was fixed.
 - Full technical writeup in design.md [Section 8](design.md#8-cli-interface-fr-1).
+
+### PV3 — Percentage progress logging — ✅ DONE
+
+User request, natural follow-on to PV2: wanted to know how far through a run gotten, not just
+whether it eventually finished.
+
+- `stager.run()` now logs `"Progress: N% (i/total assets)"` at 5% milestones (~20 lines per run,
+  regardless of library size — a 500-asset library and a 46,000-asset library both produce the
+  same number of progress lines). Deliberately percentage-based rather than a fixed-count
+  interval (like the existing `FLUSH_EVERY=200`) specifically so it doesn't get proportionally
+  chattier as libraries get larger.
+- Tracks progress independently of `FLUSH_EVERY`'s counter, which only increments on actual
+  staging attempts and can barely move during a mostly-idempotent re-run — percentage progress
+  still advances normally in that case, since it's based on assets iterated, not assets staged.
+- Required materializing `assets` into a list upfront (to know the total for the percentage
+  calculation) rather than iterating the generator lazily — a no-op cost in practice, since
+  osxphotos already holds every asset's metadata in memory internally regardless.
+- 4 new tests covering the milestone math, that library size doesn't change the line count,
+  and edge cases (a 1-asset library, an empty one). Manually smoke-tested against the real
+  10,267-asset spike library: exactly 20 lines, 5% to 100%, present in both stdout and the
+  (PV2) log file.
+- Full technical writeup in design.md [Section 6](design.md#6-idempotency--crash-safety-fr-7).
 
 ## Explicitly Not in This Tasks Doc
 

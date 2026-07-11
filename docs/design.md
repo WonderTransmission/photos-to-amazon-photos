@@ -1,6 +1,6 @@
 # Design: Photos-to-Amazon-Photos Preparer
 
-Status: v0.8 — describes a shipped v1.0 tool, plus two post-release additions (see Section 8 and 11.3)
+Status: v0.9 — describes a shipped v1.0 tool, plus post-release additions (Sections 6, 8, 11.3)
 Phase: 2 of 3 (Requirements → **Design** → Tasks)
 
 This document describes *how* [`requirements.md`](requirements.md) gets implemented. It
@@ -337,6 +337,18 @@ now understood as a rare-edge-case safety net rather than a fix for a systemic p
   (low tens of MB at most) that a full rewrite is cheap, and it avoids partial-last-line
   corruption edge cases that append-based crash safety would need to guard against separately.
 - A final flush always happens at normal run completion.
+- **Progress logging (post-v1.0 addition):** independent of the `FLUSH_EVERY`-based flush cadence
+  above, which counts actual staging *attempts* (`Process()` outcomes) and can barely move
+  during a mostly-idempotent re-run (nearly everything `Skip()`s), `stager.run()` also logs
+  `"Progress: N% (i/total assets)"` at fixed percentage milestones (every 5%, ~20 lines total)
+  as it iterates every asset regardless of outcome — giving "still working, not hung" feedback
+  even on a run where the flush-based counter rarely fires. Milestones are percentage-based
+  rather than a fixed asset count specifically so the number of log lines stays reasonable
+  (~20) whether the library has a few hundred assets or tens of thousands, rather than scaling
+  with library size. Requires knowing the total asset count upfront, so `assets` is materialized
+  into a list rather than iterated lazily — a no-op cost in practice, since osxphotos's own
+  `db.photos()` call (what `LibraryReader.iter_assets()` wraps) already loads every asset's
+  metadata into memory internally regardless of how it's consumed here.
 
 ## 7. Metadata Preservation Strategy (FR-4)
 

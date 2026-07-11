@@ -1,3 +1,4 @@
+import logging
 from datetime import datetime
 from pathlib import Path
 
@@ -295,3 +296,60 @@ def test_genuine_collision_with_different_content_still_errors(tmp_path):
             exiftool_available=False,
             library_path_str="/fake/lib",
         )
+
+
+def _make_n_assets(n):
+    return [make_asset(uuid=f"U{i}")[0] for i in range(n)]
+
+
+def test_progress_logging_at_percentage_milestones(tmp_path, caplog):
+    target_root = tmp_path / "target"
+    tracking_path = target_root / "tracking.csv"
+    assets = _make_n_assets(40)  # 5% of 40 = 2 assets per milestone -> 20 lines, 5%..100%
+
+    with caplog.at_level(logging.INFO):
+        stager.run("/fake/lib", target_root, tracking_path, assets=assets)
+
+    progress_lines = [r.message for r in caplog.records if r.message.startswith("Progress:")]
+    assert len(progress_lines) == 20
+    assert progress_lines[0] == "Progress: 5% (2/40 assets)"
+    assert progress_lines[-1] == "Progress: 100% (40/40 assets)"
+
+
+def test_progress_logging_scales_with_library_size_not_a_fixed_count(tmp_path, caplog):
+    # A much bigger library shouldn't produce proportionally more log lines -- that's the
+    # whole point of milestones being percentage-based rather than a fixed asset count.
+    target_root = tmp_path / "target"
+    tracking_path = target_root / "tracking.csv"
+    assets = _make_n_assets(2000)
+
+    with caplog.at_level(logging.INFO):
+        stager.run("/fake/lib", target_root, tracking_path, assets=assets)
+
+    progress_lines = [r.message for r in caplog.records if r.message.startswith("Progress:")]
+    assert len(progress_lines) == 20  # same count as the 40-asset test above
+    assert progress_lines[-1] == "Progress: 100% (2000/2000 assets)"
+
+
+def test_progress_logging_handles_tiny_library_without_error(tmp_path, caplog):
+    target_root = tmp_path / "target"
+    tracking_path = target_root / "tracking.csv"
+    assets = _make_n_assets(1)
+
+    with caplog.at_level(logging.INFO):
+        stager.run("/fake/lib", target_root, tracking_path, assets=assets)
+
+    progress_lines = [r.message for r in caplog.records if r.message.startswith("Progress:")]
+    assert progress_lines == ["Progress: 100% (1/1 assets)"]
+
+
+def test_progress_logging_handles_empty_library_without_error(tmp_path, caplog):
+    target_root = tmp_path / "target"
+    tracking_path = target_root / "tracking.csv"
+
+    with caplog.at_level(logging.INFO):
+        summary = stager.run("/fake/lib", target_root, tracking_path, assets=[])
+
+    assert summary.total() == 0
+    progress_lines = [r.message for r in caplog.records if r.message.startswith("Progress:")]
+    assert progress_lines == []

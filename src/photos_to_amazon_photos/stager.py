@@ -21,6 +21,7 @@ from photos_to_amazon_photos.tracking import TrackingRow
 log = logging.getLogger(__name__)
 
 FLUSH_EVERY = 200
+PROGRESS_LOG_INTERVAL_PERCENT = 5
 _MOTION_EXTENSIONS = {".mov", ".mp4"}
 
 COPIED = "copied"
@@ -179,9 +180,16 @@ def run(
 
     if assets is None:
         assets = LibraryReader(library_path_str).iter_assets()
+    # Materialized rather than iterated lazily so total_assets is known for progress logging --
+    # cheap in practice, since osxphotos's own db.photos() call (what iter_assets() wraps) has
+    # already loaded every asset's metadata into memory internally regardless of how it's
+    # consumed here; this doesn't add a new memory cost.
+    assets = list(assets)
+    total_assets = len(assets)
 
     processed_count = 0
-    for asset in assets:
+    last_logged_percent = 0
+    for asset_index, asset in enumerate(assets, start=1):
         if asset.media_type == library_reader.LIVE_PHOTO:
             components = [tracking.KEY_IMAGE, tracking.LIVE_BUNDLE]
             ignore_reason = _live_photo_ignore_reason(tracking_index, asset.uuid)
@@ -245,6 +253,20 @@ def run(
             if processed_count % FLUSH_EVERY == 0:
                 tracking_index.flush(tracking_path)
                 log.info("progress: %d processed, tracking file flushed", processed_count)
+
+        # Percentage-of-library progress, independent of FLUSH_EVERY above: that one only
+        # counts actual staging attempts, which barely moves on a mostly-idempotent re-run
+        # (nearly everything Skip()s). This counts assets iterated regardless of outcome, so it
+        # still gives useful feedback -- "still working, not hung" -- on that kind of run too.
+        # Logged at fixed percentage milestones rather than a fixed asset count so the number of
+        # log lines stays reasonable (~20) regardless of library size, from a few hundred assets
+        # to tens of thousands.
+        if total_assets:
+            percent = (asset_index * 100) // total_assets
+            milestone = (percent // PROGRESS_LOG_INTERVAL_PERCENT) * PROGRESS_LOG_INTERVAL_PERCENT
+            if milestone > last_logged_percent:
+                last_logged_percent = milestone
+                log.info("Progress: %d%% (%d/%d assets)", milestone, asset_index, total_assets)
 
     if not dry_run:
         tracking_index.flush(tracking_path)
