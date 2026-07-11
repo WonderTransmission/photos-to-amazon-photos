@@ -4,6 +4,7 @@ import argparse
 import logging
 import subprocess
 import sys
+from datetime import datetime
 from pathlib import Path
 
 from photos_to_amazon_photos import stager
@@ -58,6 +59,45 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+_OWN_HANDLER_NAMES = ("photos_to_amazon_photos.stream", "photos_to_amazon_photos.file")
+
+
+def _setup_logging(log_level: str) -> Path:
+    """Log to both stdout and a timestamped file in the current directory, so a run's progress
+    survives even if the terminal session is lost (e.g. the Mac shuts down unexpectedly) before
+    it can be checked. Returns the log file path.
+
+    Manages the root logger's handlers directly rather than using logging.basicConfig(), which
+    only offers an all-or-nothing force=True that would strip out handlers other tools attach
+    to the root logger (e.g. pytest's caplog fixture) -- this removes and closes only the
+    handlers *this function* previously added (identified by name), so repeated calls (a second
+    real run in a long-lived process, or simply the test suite) get a fresh, correctly-pointed
+    file handler without disturbing anything else on the root logger.
+    """
+    log_file = Path.cwd() / f"photos-to-amazon-photos-{datetime.now():%Y%m%d-%H%M%S}.log"
+    formatter = logging.Formatter("%(asctime)s %(levelname)s %(message)s")
+
+    stream_handler = logging.StreamHandler(sys.stdout)
+    stream_handler.setFormatter(formatter)
+    stream_handler.name = "photos_to_amazon_photos.stream"
+
+    file_handler = logging.FileHandler(log_file)
+    file_handler.setFormatter(formatter)
+    file_handler.name = "photos_to_amazon_photos.file"
+
+    root = logging.getLogger()
+    for handler in list(root.handlers):
+        if handler.name in _OWN_HANDLER_NAMES:
+            root.removeHandler(handler)
+            handler.close()
+
+    root.addHandler(stream_handler)
+    root.addHandler(file_handler)
+    root.setLevel(getattr(logging, log_level))
+
+    return log_file
+
+
 def _photos_app_running() -> bool:
     try:
         result = subprocess.run(["pgrep", "-x", "Photos"], capture_output=True)
@@ -87,11 +127,9 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
 
-    logging.basicConfig(
-        level=getattr(logging, args.log_level),
-        format="%(asctime)s %(levelname)s %(message)s",
-    )
+    log_file = _setup_logging(args.log_level)
     log = logging.getLogger("photos_to_amazon_photos")
+    log.info("Logging to: %s", log_file)
 
     if not args.library_path.is_dir():
         parser.error(f"library_path does not exist or is not a directory: {args.library_path}")
@@ -125,7 +163,13 @@ def main(argv: list[str] | None = None) -> int:
         log.error("failed to open or read the library: %s", e)
         return 1
 
-    print(_format_summary(summary, args.dry_run))
+    summary_text = _format_summary(summary, args.dry_run)
+    print(summary_text)
+    # Always written to the log file too, regardless of --log-level -- this is the one thing
+    # most worth having survive an unexpectedly-interrupted session (print() alone wouldn't
+    # reach the file handler, since it doesn't go through the logging system).
+    with log_file.open("a") as f:
+        f.write(summary_text + "\n")
     return 0
 
 

@@ -1,6 +1,6 @@
 # Tasks: Photos-to-Amazon-Photos Preparer
 
-Status: v1.0.3 — complete, with a remediation tool added for the post-release date-heuristic fix
+Status: v1.0.4 — complete, plus a remediation tool and dual stdout/file logging added post-release
 Phase: 3 of 3 (Requirements → Design → **Tasks**)
 
 **v0.6 note:** Milestone 1 (T1.1, T1.2) is done — project scaffolding exists and is verified
@@ -476,6 +476,26 @@ correct, verifiable embedded EXIF dates (user-reported, confirmed via `exiftool`
   `tracking.csv` first. Required adding a small `TrackingIndex.remove()` method to `tracking.py`
   (tested), since removing a row wasn't previously a supported operation — normal staging never
   needs to remove rows, only this kind of one-off remediation does.
+
+### PV2 — Dual logging (stdout + timestamped file) — ✅ DONE
+
+User request, not a bug: after a real multi-hour run against the largest target library, wanted
+a way to know whether an unattended run completed even if the Mac became unavailable (sleep,
+shutdown, crash) before the terminal could be checked.
+
+- Every run now writes a timestamped log file (`photos-to-amazon-photos-YYYYMMDD-HHMMSS.log`) in
+  the current working directory, mirroring everything sent to stdout, in addition to the
+  terminal output itself — no new flag, just a change to `cli.py`'s default behavior.
+- The final run summary is explicitly written to the log file too, not just logged — it's
+  produced via `print()`, which doesn't go through the `logging` module, so without this it
+  would be the one piece of output most likely to be missing from the file precisely when it's
+  most wanted (confirming whether a run actually finished).
+- Implementation note: uses two explicit `logging` handlers (stream + file) managed directly by
+  name, rather than `logging.basicConfig(force=True)` — that would have stripped out any
+  handlers other tooling attaches to the root logger. Caught this the hard way: the first
+  implementation broke `caplog`-based tests (pytest's log-capture fixture attaches its own root
+  handler) before it was fixed.
+- Full technical writeup in design.md [Section 8](design.md#8-cli-interface-fr-1).
 
 ## Explicitly Not in This Tasks Doc
 

@@ -1,6 +1,6 @@
 # Design: Photos-to-Amazon-Photos Preparer
 
-Status: v0.7 — describes a shipped v1.0 tool, with one post-release fix (revised twice) recorded
+Status: v0.8 — describes a shipped v1.0 tool, plus two post-release additions (see Section 8 and 11.3)
 Phase: 2 of 3 (Requirements → **Design** → Tasks)
 
 This document describes *how* [`requirements.md`](requirements.md) gets implemented. It
@@ -387,6 +387,18 @@ photos-to-amazon-photos <library_path> <target_root> [--tracking-file PATH] [--d
 
 No other flags in v1 — consistent with NG4 (CLI only, no GUI) and avoiding flags that aren't
 directly required by the requirements doc.
+
+**Dual logging (post-v1.0 addition, no new flag):** every run writes a timestamped log file
+(`photos-to-amazon-photos-YYYYMMDD-HHMMSS.log`) in the current working directory, mirroring
+everything sent to stdout — added after real usage surfaced a concrete need: knowing whether an
+unattended run completed if the Mac becomes unavailable (sleep, shutdown, crash) before the
+terminal can be checked. Implemented as two `logging` handlers (stream + file) sharing one
+formatter, rather than via `logging.basicConfig(force=True)`, specifically so it doesn't strip
+out handlers other tooling (e.g. a test runner's log capture) may have attached to the root
+logger — only handlers this function previously added itself are replaced. The final run
+summary is explicitly written to the log file in addition to being `print()`-ed, since `print()`
+doesn't go through the logging system and would otherwise be the one piece of output most worth
+having survive an interrupted session that the file would miss.
 
 ## 9. Error Handling (FR-10)
 

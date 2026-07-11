@@ -62,6 +62,13 @@ Full option list: `photos-to-amazon-photos --help`. The notable ones:
 | `--tracking-file PATH` | Override the default `<target_root>/tracking.csv` location. |
 | `--log-level {DEBUG,INFO,WARNING,ERROR}` | Verbosity (default `INFO`). The run summary always prints regardless of this setting. |
 
+Every run also writes a timestamped log file (`photos-to-amazon-photos-YYYYMMDD-HHMMSS.log`) in
+whatever directory you ran the command from, mirroring everything printed to the terminal —
+including the final run summary, even if `--log-level` would otherwise suppress it. This is
+specifically so you can tell whether a run completed (and what happened) even if you can't check
+the terminal afterward, e.g. the Mac went to sleep or shut down unexpectedly before you got back
+to it.
+
 ### Before running
 
 - **iCloud originals must already be downloaded locally.** The tool never triggers an iCloud
