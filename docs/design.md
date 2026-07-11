@@ -1,6 +1,6 @@
 # Design: Photos-to-Amazon-Photos Preparer
 
-Status: v0.6 — describes a shipped v1.0 tool, with one post-release fix recorded
+Status: v0.7 — describes a shipped v1.0 tool, with one post-release fix (revised twice) recorded
 Phase: 2 of 3 (Requirements → **Design** → Tasks)
 
 This document describes *how* [`requirements.md`](requirements.md) gets implemented. It
@@ -32,11 +32,20 @@ the original compatibility/availability risk thread.
 
 **v0.6 note (post-v1.0):** a real production run against the actual 46,141-asset target library
 surfaced a genuine bug in the date/undated heuristic — ~1,000 assets with correct embedded dates
-were misrouted to `_undated/`. Root-caused, fixed, and re-validated far more rigorously than the
-original Milestone 0 spike — see [Section 5.2](#52-date-resolution--the-undated-heuristic) and
-[Section 11.3](#113-date-heuristic-accuracy--revised-after-a-real-production-false-positive) for
-the full story. The fix is forward-only; already-staged files aren't retroactively moved — see
-tasks.md's post-v1.0 section for remediation options.
+were misrouted to `_undated/`. Root-caused, fixed as v2, and re-validated (681 real assets) far
+more rigorously than the original Milestone 0 spike.
+
+**v0.7 note (post-v1.0, continued):** v2's validation had its own gap — it only checked
+locally-available assets. A verification script written specifically to re-check any fix against
+a real library (`scripts/verify_date_heuristic_fix.sh`) caught v2 still misclassifying 64
+cloud-only assets (mostly videos) *before* it reached the user's actual target library. Fixed
+again as v3 (100ms threshold instead of 2s), this time validated against the complete
+10,267-asset library with zero unexpected misclassifications. See
+[Section 5.2](#52-date-resolution--the-undated-heuristic) and
+[Section 11.3](#113-date-heuristic-accuracy--revised-twice-after-real-production-false-positives)
+for the full story, including what the validation methodology got wrong both times. The fix
+remains forward-only; already-staged files aren't retroactively moved — see tasks.md's
+post-v1.0 section for remediation options.
 
 ## 1. Architecture Overview
 
@@ -147,15 +156,15 @@ assets misrouted to `_undated/` despite having correct embedded dates. A rigorou
 this project's own real spike-library data (681 available assets) found the v1 heuristic's
 false-positive rate among its "undated" classifications was **~79%** (27 of 34).
 
-**v2 heuristic (current):** uses `PhotoInfo.date_original` instead of `date` for the comparison.
-osxphotos sets `date_original` from EXIF at import time, and — critically — falls back to
-*exactly* mirroring `date_added` (matching to the microsecond) only when there was no EXIF date
-at all:
+**v2/v3 heuristic (current — see the revision note below for why v2's threshold changed):** uses
+`PhotoInfo.date_original` instead of `date` for the comparison. osxphotos sets `date_original`
+from EXIF at import time, and — critically — falls back to *exactly* mirroring `date_added`
+(matching to the microsecond) only when there was no EXIF date at all:
 
 ```
 if photo.date_added is None:
     date_source = "photos_date"   # no fallback signal to compare against; trust date as-is
-elif abs(photo.date_original - photo.date_added) < UNDATED_THRESHOLD:   # now 2 seconds
+elif abs(photo.date_original - photo.date_added) < UNDATED_THRESHOLD:   # 100ms as of v3
     date_source = "library_added" # date_original is a pure copy of date_added: no real EXIF date existed
 else:
     date_source = "photos_date"
@@ -182,29 +191,54 @@ independent ways:
   659 did.
 - Ground truth via the `date_original`/`date_added` gap itself: exactly 6 assets showed a gap of
   **precisely 0.000 seconds** (down to the microsecond) — these are the true "Photos had nothing,
-  fell back to import time" cases. Every other asset's gap starts at **4.42 seconds** and goes up
-  from there (into hours, for some screenshots — see below) — a clean split with nothing in
-  between across the entire dataset. `UNDATED_THRESHOLD = 2` seconds sits safely in that gap; it's
-  a small safety margin against floating-point/timezone-conversion jitter, not a boundary expected
-  to matter in practice.
+  fell back to import time" cases. Every other asset in this 681-asset (locally-available-only)
+  subset had a gap of **4.42 seconds** or more — a clean split, *within that subset*. This
+  validation had a gap of its own — see below.
 - The discrepancy between the two ground truths (22 vs. 6) is fully explained, not a bug: 16
   screenshots/PNGs have no camera EXIF (correctly `exif_info.date is None`) but Photos still
   derives an accurate `date`/`date_original` for them from OS-level metadata, matching the
   original Milestone 0 finding for screenshots specifically. These showed gaps of exactly 4 or 5
   *hours* (14400s / 18000s — a timezone-handling quirk, not real capture-time jitter) between
-  `date_original` and `date_added`, nowhere near the 2-second threshold either way — so they were
-  never actually at risk of misclassification under either heuristic version. Locked in as an
-  explicit regression test regardless.
-- Running the actual fixed `date_resolver.resolve()` against the whole 681-asset set: **34 → 6**
-  assets flagged undated, exactly matching the true no-signal-at-all count from the `exif_info`
-  cross-check. Zero false positives, zero false negatives, on this dataset.
+  `date_original` and `date_added` — nowhere near any threshold considered for this heuristic, so
+  they were never actually at risk of misclassification. Locked in as an explicit regression
+  test regardless.
+- Running the fixed `date_resolver.resolve()` (v2, 2-second threshold) against the whole
+  681-asset *locally-available* set: 34 → 6 assets flagged undated, matching the true
+  no-signal-at-all count. This looked like a clean, complete validation at the time.
+
+**v2's validation gap, found by `scripts/verify_date_heuristic_fix.sh` before it ever reached
+production data:** that 681-asset validation set was implicitly filtered to `path is not None`
+(locally-available assets), because that's what the original Milestone 0 spike happened to
+export against. Running the same before/after comparison against the library's **full 10,267
+assets** (not the locally-available subset) surfaced 64 assets — disproportionately videos, and
+*exclusively* assets not stored locally — with genuine EXIF dates and a real
+`date_original`/`date_added` gap as small as **0.348 seconds**, apparently because cloud-only
+synced metadata goes through a lighter/faster processing path than a fully-downloaded local
+import. v2's 2-second threshold caught some of these as new false positives — the same failure
+mode as v1, just with a much smaller blast radius, and one that never showed up in the narrower
+validation set.
+
+**v3 (current): threshold dropped to 100 milliseconds.** Re-verified against the *entire*
+10,267-asset library this time: every known-no-EXIF case still sits at an exact 0.000s gap, and
+every known-has-EXIF case — including the fast cloud-sync ones — sits at 0.348s or more. 100ms
+leaves a >3x margin below that floor. Running the actual v3 code against all 10,267 assets:
+35 → 6 flagged undated, **zero** unexpected new flags this time. `scripts/verify_date_heuristic_fix.sh`
+is kept in the repo specifically so this same check can be (and should be) re-run against any
+other real library before trusting the heuristic there, rather than assuming a fix validated on
+one library's data generalizes.
+
+**Lesson for future changes to this heuristic**, recorded because it bit this fix twice: a
+validation sample — even a real, non-trivial one — can look like 100% agreement while quietly
+excluding an entire category of data (here: cloud-only assets) that behaves differently. Prefer
+checking against the full available dataset over a filtered/curated sample when the check is
+cheap enough to run that way (this one is — pure metadata reads, no exports).
 
 **Known limitation, not yet resolved:** this fix is not retroactive. Assets already staged under
-the v1 heuristic with `status=copied` in `tracking.csv` are not reprocessed by re-running the
-tool — FR-7's skip rule applies regardless of which heuristic version produced the row. Moving
-already-misplaced files requires either manually clearing their tracking rows (and the stray
-files) so they get reprocessed, or accepting them as correctly-dated-but-wrong-folder until a
-dedicated remediation path exists (see tasks.md's post-v1.0 section).
+an earlier heuristic version with `status=copied` in `tracking.csv` are not reprocessed by
+re-running the tool — FR-7's skip rule applies regardless of which heuristic version produced
+the row. Moving already-misplaced files requires either manually clearing their tracking rows
+(and the stray files) so they get reprocessed, or accepting them as correctly-dated-but-wrong-folder
+until a dedicated remediation path exists (see tasks.md's post-v1.0 section).
 
 ### 5.3 Photos.app concurrency check (resolves the "may revisit in design" note on NFR-6)
 
@@ -421,18 +455,29 @@ additional dedup complexity for v1 (consistent with [NG3](requirements.md#3-non-
 The spike's uniqueness check (10,267 assets, 10,267 unique UUIDs) is consistent with this being
 a non-issue in practice, at least at a single point in time.
 
-### 11.3 Date heuristic accuracy — revised after a real production false-positive
+### 11.3 Date heuristic accuracy — revised twice after real production false-positives
 
 Originally: validated against 36 real assets (30 with camera EXIF, 6 screenshots) with
-independent ground truth, 100% agreement, `UNDATED_THRESHOLD = 60` seconds. **That validation
-was real but incomplete** — the 36-asset sample didn't include recently-synced photos, the
-specific case the v1 heuristic got wrong. A real 46,141-asset production run surfaced ~1,000
-misclassified assets. Root-caused, fixed, and re-validated far more rigorously (681 real assets,
-two independent ground truths, zero false positives/negatives) — full writeup in
-[Section 5.2](#52-date-resolution--the-undated-heuristic). Lesson for future changes to this
-heuristic: a small hand-picked validation sample can look like 100% agreement while missing an
-entire common case; prefer checking against the *full* available real dataset when feasible, not
-just a sample chosen to span "obviously different" categories.
+independent ground truth, 100% agreement, `UNDATED_THRESHOLD = 60` seconds (v1). **That
+validation was real but incomplete** — the 36-asset sample didn't include recently-synced
+photos, the specific case v1 got wrong. A real 46,141-asset production run surfaced ~1,000
+misclassified assets. Root-caused and fixed as v2 (`date_original` instead of `date`, 2-second
+threshold), re-validated against 681 real assets with two independent ground truths, zero
+false positives/negatives — looked complete at the time.
+
+**It wasn't.** That 681-asset set was implicitly filtered to locally-available assets only.
+Checking the same library's full 10,267 assets (via `scripts/verify_date_heuristic_fix.sh`,
+written specifically so this check could be run against *other* real libraries before trusting
+the heuristic there) found 64 more false positives v2 still caught — disproportionately videos,
+exclusively cloud-only assets, with real gaps as small as 0.348s. Fixed as v3 (100ms threshold),
+re-validated against the full 10,267-asset library this time: zero unexpected misclassifications
+in either direction. Full writeup in [Section 5.2](#52-date-resolution--the-undated-heuristic).
+
+**Lesson, learned twice on this same heuristic:** a validation sample — even a real,
+non-trivial, seemingly-complete one — can look like 100% agreement while quietly excluding an
+entire category of data that behaves differently. Prefer checking against the *full* available
+real dataset over a filtered/curated sample whenever the check is cheap enough to run that way
+(this one is: pure metadata reads, no file exports needed).
 
 ### 11.4 Library composition: this spike library was not representative
 

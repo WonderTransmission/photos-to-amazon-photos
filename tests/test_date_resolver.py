@@ -83,8 +83,9 @@ def test_screenshot_with_no_exif_but_derived_date_is_not_undated():
     the capture timestamp embedded in their filename -- see design.md Section 5.2's original
     validation). On a real library, these showed a multi-HOUR gap between date_original and
     date_added (a timezone-handling quirk specific to synced/shared content, confirmed across
-    16 real screenshot/PNG assets), never anywhere near the 2s threshold -- so they were never
-    actually at risk of misclassification, but this locks the behavior in explicitly."""
+    16 real screenshot/PNG assets), nowhere near any threshold considered for this heuristic --
+    so they were never actually at risk of misclassification, but this locks the behavior in
+    explicitly."""
     date_original = datetime(2022, 5, 20, 14, 52, 15, 400838)
     added_time = date_original - timedelta(hours=4)  # real observed pattern: exact 4h/5h offset
     result = resolve(date_original, added_time, date_original)
@@ -92,13 +93,29 @@ def test_screenshot_with_no_exif_but_derived_date_is_not_undated():
     assert result.is_undated is False
 
 
+def test_cloud_only_asset_with_small_real_gap_is_not_undated():
+    """Regression test for a second real bug, found by scripts/verify_date_heuristic_fix.sh
+    BEFORE it reached production data: v2's 2-second threshold was still too loose. A follow-up
+    check against a real library's FULL 10,267 assets (not just the 681 locally-available ones
+    v2 was validated against) found 64 assets -- disproportionately videos, and exclusively
+    assets not stored locally -- with genuine EXIF dates and a real gap as small as 0.348s,
+    apparently because cloud-only synced metadata goes through a lighter/faster processing path
+    than a fully-downloaded local import. v3's 100ms threshold sits safely below that floor."""
+    capture_time = datetime(2025, 8, 19, 22, 46, 12, 976076)
+    added_time = capture_time + timedelta(milliseconds=348)  # smallest real gap observed
+    result = resolve(capture_time, added_time, date_original=capture_time)
+    assert result.date_source == PHOTOS_DATE
+    assert result.is_undated is False
+
+
 def test_no_gap_between_exact_zero_and_the_smallest_real_gap():
-    """Real production data (681 available real assets) showed a completely clean split: every
-    genuine no-EXIF-and-no-independent-signal case sits at an EXACT 0.000s gap, and every case
-    with any real signal (EXIF or otherwise) starts at 4.42s and up -- nothing in between.
-    UNDATED_THRESHOLD sits comfortably inside that gap; this pins the boundary behavior."""
+    """Real production data (the FULL 10,267-asset library, not just a locally-available
+    subset) showed a completely clean split: every genuine no-EXIF-and-no-independent-signal
+    case sits at an EXACT 0.000s gap, and every case with any real signal (EXIF or otherwise)
+    starts at 0.348s and up -- nothing in between. UNDATED_THRESHOLD (100ms) sits comfortably
+    inside that gap; this pins the boundary behavior."""
     added_time = datetime(2024, 1, 1, 0, 0, 0)
-    just_under = resolve(added_time, added_time, added_time + timedelta(milliseconds=1999))
-    just_over = resolve(added_time, added_time, added_time + timedelta(milliseconds=2001))
+    just_under = resolve(added_time, added_time, added_time + timedelta(milliseconds=99))
+    just_over = resolve(added_time, added_time, added_time + timedelta(milliseconds=101))
     assert just_under.is_undated is True
     assert just_over.is_undated is False
