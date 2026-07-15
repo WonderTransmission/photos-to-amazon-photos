@@ -6,7 +6,7 @@ build-backend = "hatchling.build"
 name = "orientation-correction"
 version = "0.1.0"
 description = "Detects and corrects sideways/upside-down photos in a staged photo directory, using the deep-image-orientation-detection ONNX model. See docs/how-it-works.md."
-readme = "docs/how-it-works.md"
+readme = "README.md"
 license = "MIT"
 requires-python = ">=3.14"
 dependencies = [

@@ -133,6 +133,13 @@ Future runs will skip it permanently, without touching the source library. For a
 marking *either* of its two rows (`key_image` or `live_bundle`) ignored is enough — the tool
 automatically treats the whole Live Photo as ignored and marks the other row to match.
 
+## Utilities
+
+Standalone tools that operate on staged output, under [`scripts/`](scripts):
+
+- [`orientation_correction`](scripts/orientation_correction/README.md) — detects and corrects
+  sideways/upside-down photos in a staged directory.
+
 ## Development
 
 ```sh
