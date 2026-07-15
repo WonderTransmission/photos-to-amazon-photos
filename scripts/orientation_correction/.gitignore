@@ -1,0 +1,7 @@
+# Model weights are large binaries fetched separately -- see models/README.md.
+models/*.onnx
+models/*.pth
+
+# Run output -- never commit logs or preview-links files (may reference real filesystem paths
+# from a personal photo archive).
+logs/
