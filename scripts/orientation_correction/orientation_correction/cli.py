@@ -211,7 +211,7 @@ def run(args: argparse.Namespace, log: logging.Logger) -> Counter:
                 counts[WOULD_CORRECT] += 1
                 would_correct_paths.append(pred.path)
                 log.debug(
-                    "Would correct %s (%d%% CW, confidence %.2f)",
+                    "Would correct %s (%d deg CW, confidence %.2f)",
                     pred.path,
                     pred.corrective_rotation_degrees,
                     pred.confidence,
@@ -229,7 +229,7 @@ def run(args: argparse.Namespace, log: logging.Logger) -> Counter:
                 counts[CORRECTED] += 1
                 corrected_paths.append(pred.path)
                 log.debug(
-                    "Corrected %s (%d%% CW, confidence %.2f)",
+                    "Corrected %s (%d deg CW, confidence %.2f)",
                     pred.path,
                     pred.corrective_rotation_degrees,
                     pred.confidence,
