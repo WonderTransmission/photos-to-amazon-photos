@@ -15,9 +15,13 @@ from orientation_correction import correct, discover, infer, naming, preview_lin
 LOG_LEVELS = ["DEBUG", "INFO", "WARNING", "ERROR"]
 PROGRESS_LOG_INTERVAL_PERCENT = 5
 
-_PROJECT_ROOT = Path(__file__).resolve().parent.parent
-_DEFAULT_MODEL_PATH = _PROJECT_ROOT / "models" / "best_model.onnx"
-_DEFAULT_LOG_DIR = _PROJECT_ROOT / "logs"
+# Relative to the current working directory, not to this file -- a regular (non-editable)
+# `pip install .` copies only the orientation_correction/ package into site-packages, so a
+# __file__-based default would resolve to somewhere inside the venv instead of the project
+# directory. README.md documents running this from within scripts/orientation_correction/, which
+# is what makes these relative defaults land in the right place.
+_DEFAULT_MODEL_PATH = Path("models/best_model.onnx")
+_DEFAULT_LOG_DIR = Path("logs")
 
 DISCOVERED = "discovered"
 SKIPPED_ALREADY_CORRECTED = "skipped_already_corrected"
@@ -64,7 +68,8 @@ def build_parser() -> argparse.ArgumentParser:
         "--model-path",
         type=Path,
         default=_DEFAULT_MODEL_PATH,
-        help=f"Path to the ONNX orientation model (default: {_DEFAULT_MODEL_PATH}).",
+        help=f"Path to the ONNX orientation model (default: {_DEFAULT_MODEL_PATH}, relative to "
+        "the current directory).",
     )
     parser.add_argument(
         "--batch-size",
@@ -96,7 +101,8 @@ def build_parser() -> argparse.ArgumentParser:
         "--log-dir",
         type=Path,
         default=_DEFAULT_LOG_DIR,
-        help=f"Where to write the run log and preview-links file (default: {_DEFAULT_LOG_DIR}).",
+        help=f"Where to write the run log and preview-links file (default: {_DEFAULT_LOG_DIR}, "
+        "relative to the current directory).",
     )
     parser.add_argument(
         "--log-level",
