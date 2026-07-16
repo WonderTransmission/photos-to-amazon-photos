@@ -5,3 +5,6 @@ models/*.pth
 # Run output -- never commit logs or preview-links files (may reference real filesystem paths
 # from a personal photo archive).
 logs/
+
+# Persistent ignore list of confirmed false positives -- also references real filesystem paths.
+/ignore-list.txt

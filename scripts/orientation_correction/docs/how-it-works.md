@@ -137,7 +137,9 @@ Default `0.0` (off) -- matches the simple argmax behavior the model's own predic
 which is what the original research session validated manually. If spot-checks turn up false
 positives, raising this (e.g. `--min-confidence 0.8`) causes borderline predictions to be left
 untouched and listed in a separate "low confidence" section of the preview-links file for manual
-review, rather than auto-corrected.
+review, rather than auto-corrected. In practice this doesn't fully eliminate false positives --
+some wrong corrections come through confidently -- which is what
+[reviewing and reverting false positives](#reviewing-and-reverting-false-positives) is for.
 
 ## Preview links
 
@@ -153,6 +155,46 @@ directory and writes an `open -a preview` command for each group, in three label
 Run it (`bash logs/preview-links-<timestamp>.sh`) to pop open Preview.app on everything flagged,
 directory by directory, so you can eyeball whether the correction (or the flag) makes sense
 before trusting a large batch.
+
+## Reviewing and reverting false positives
+
+Every run also writes a `review-<run_timestamp>.txt` checklist next to the preview-links script
+(only when something was actually flagged) -- one absolute path per line, covering everything in
+the **Corrected** and **Would be corrected** sections above (not **Low confidence**, since those
+were never touched either way -- there's nothing to revert).
+
+The workflow:
+
+1. Open the preview-links script to eyeball the results in Preview.app.
+2. In the review checklist, **delete the line for every file that's actually fine.** Leave only
+   the false positives. (In practice this is fast, since correctly-classified files are the
+   majority -- there's usually only a handful of lines left.)
+3. Run the command the checklist file itself tells you to (also shown here):
+   ```sh
+   python -m orientation_correction.revert logs/review-<timestamp>.txt
+   ```
+   or, if installed: `orientation-correct-revert logs/review-<timestamp>.txt`
+
+For each remaining path, this:
+
+- **If it was actually corrected** (`--apply` was used): restores the original bytes from its
+  `.orig.*` backup back onto the real filename -- a single rename, which also consumes
+  (removes) the backup. The wrongly-rotated bytes aren't kept around afterward; once restored,
+  they have no value and keeping them would just be one more file type to clean up before
+  re-enabling Amazon Photos Backup (see below).
+- **If it was only a dry-run candidate** (nothing was ever written to disk): there's nothing to
+  restore, so it's just added to the ignore list -- logged as "no backup found", which is
+  expected and not an error in this case.
+- **Either way**, the path is appended to a persistent ignore list (`ignore-list.txt` by
+  default, next to `models/` -- override with `--ignore-list` on both commands, and keep them in
+  sync). Every future `orientation-correct` run loads this file and skips anything on it, before
+  even running inference -- this is what makes a reverted file stay fixed instead of getting
+  flagged the same wrong way again on the next run.
+
+The ignore list is a plain path list (see `ignore_list.py`), so it doesn't survive a rename or
+move of the file -- the same limitation the main `photos-to-amazon-photos` tool's own
+`tracking.csv`-based ignore workflow already accepts (see its README). It's gitignored, like
+`logs/`, since it accumulates real archive file paths over time.
 
 ## Logging
 

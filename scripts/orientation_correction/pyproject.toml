@@ -18,6 +18,7 @@ dependencies = [
 
 [project.scripts]
 orientation-correct = "orientation_correction.cli:main"
+orientation-correct-revert = "orientation_correction.revert:main"
 
 [project.optional-dependencies]
 dev = [

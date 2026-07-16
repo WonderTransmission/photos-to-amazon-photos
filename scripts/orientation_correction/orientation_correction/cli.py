@@ -10,7 +10,7 @@ from pathlib import Path
 
 from PIL import Image
 
-from orientation_correction import correct, discover, infer, naming, preview_links
+from orientation_correction import correct, discover, ignore_list, infer, naming, preview_links
 
 LOG_LEVELS = ["DEBUG", "INFO", "WARNING", "ERROR"]
 PROGRESS_LOG_INTERVAL_PERCENT = 5
@@ -25,6 +25,7 @@ _DEFAULT_LOG_DIR = Path("logs")
 
 DISCOVERED = "discovered"
 SKIPPED_ALREADY_CORRECTED = "skipped_already_corrected"
+SKIPPED_IGNORED = "skipped_ignored"
 NO_ACTION_NEEDED = "no_action_needed"
 WOULD_CORRECT = "would_correct"
 CORRECTED = "corrected"
@@ -34,6 +35,7 @@ ERROR = "error"
 _OUTCOME_ORDER = [
     DISCOVERED,
     SKIPPED_ALREADY_CORRECTED,
+    SKIPPED_IGNORED,
     NO_ACTION_NEEDED,
     WOULD_CORRECT,
     CORRECTED,
@@ -96,6 +98,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="Minimum model confidence (0-1) required to auto-correct a flagged image. Images "
         "predicted as needing rotation but below this are left untouched and listed separately "
         "in the preview-links file for manual review. Default 0.0 (no filtering).",
+    )
+    parser.add_argument(
+        "--ignore-list",
+        type=Path,
+        default=ignore_list.DEFAULT_PATH,
+        help=f"Path to the persistent ignore list of confirmed false positives (default: "
+        f"{ignore_list.DEFAULT_PATH}, relative to the current directory). Populated via "
+        "`python -m orientation_correction.revert` -- see docs/how-it-works.md.",
     )
     parser.add_argument(
         "--log-dir",
@@ -175,6 +185,18 @@ def run(args: argparse.Namespace, log: logging.Logger) -> Counter:
             "Skipping %d image(s) already corrected by a previous run",
             counts[SKIPPED_ALREADY_CORRECTED],
         )
+
+    ignored = ignore_list.load(args.ignore_list)
+    if ignored:
+        before = len(to_infer)
+        to_infer = [p for p in to_infer if p.resolve() not in ignored]
+        counts[SKIPPED_IGNORED] = before - len(to_infer)
+        if counts[SKIPPED_IGNORED]:
+            log.info(
+                "Skipping %d image(s) on the ignore list (%s)",
+                counts[SKIPPED_IGNORED],
+                args.ignore_list,
+            )
 
     if not to_infer:
         log.info("Nothing left to check.")
@@ -259,6 +281,21 @@ def run(args: argparse.Namespace, log: logging.Logger) -> Counter:
         low_confidence=low_confidence_paths,
     )
     log.info("Preview-links script written to: %s", preview_links_path)
+
+    review_path = args.log_dir / f"review-{run_timestamp}.txt"
+    wrote_review = preview_links.write_review_checklist(
+        review_path,
+        corrected=corrected_paths,
+        would_correct=would_correct_paths,
+        revert_command=f"python -m orientation_correction.revert {review_path} "
+        f"--ignore-list {args.ignore_list}",
+    )
+    if wrote_review:
+        log.info(
+            "Review checklist written to: %s -- delete the lines for files that are fine, then "
+            "see docs/how-it-works.md#reviewing-and-reverting-false-positives",
+            review_path,
+        )
 
     return counts
 

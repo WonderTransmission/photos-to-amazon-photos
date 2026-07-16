@@ -65,3 +65,35 @@ def write_preview_links(
 
     output_path.write_text("\n".join(lines) + "\n")
     output_path.chmod(0o755)
+
+
+def write_review_checklist(
+    output_path: Path,
+    *,
+    corrected: list[Path],
+    would_correct: list[Path],
+    revert_command: str,
+) -> bool:
+    """A plain-text checklist of every file rotated this run (or that would be, in dry-run mode):
+    one absolute path per line. Delete the line for every file that's actually fine, leaving
+    only the false positives, then feed the trimmed file to `revert_command` -- see
+    docs/how-it-works.md#reviewing-and-reverting-false-positives. Returns False (and writes
+    nothing) if there's nothing to review."""
+    flagged = sorted({*corrected, *would_correct})
+    if not flagged:
+        return False
+
+    lines = [
+        "# orientation-correct review checklist.",
+        "#",
+        "# One line per file rotated this run (or that would be, in dry-run mode). Open the",
+        "# matching preview-links-*.sh to eyeball each one in Preview.app, then DELETE the line",
+        "# for every file that's actually fine -- leave only the false positives.",
+        "#",
+        "# Once only the wrong ones are left, run:",
+        f"#   {revert_command}",
+        "",
+        *(str(p) for p in flagged),
+    ]
+    output_path.write_text("\n".join(lines) + "\n")
+    return True

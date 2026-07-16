@@ -46,8 +46,23 @@ Full option list: `orientation-correct --help`. The notable ones:
 | `--apply` | Actually back up and correct files. Without it, dry-run only. |
 | `--min-confidence FLOAT` | Below this model confidence, a flagged image is left untouched and listed for manual review instead of auto-corrected (default `0.0`, off). |
 | `--model-path PATH` | Override the default `models/best_model.onnx` location. |
-| `--log-dir PATH` | Where the run log and preview-links file are written (default `logs/`). |
+| `--log-dir PATH` | Where the run log, preview-links, and review checklist are written (default `logs/`). |
+| `--ignore-list PATH` | Persistent list of confirmed false positives to always skip (default `ignore-list.txt`). |
 | `--log-level {DEBUG,INFO,WARNING,ERROR}` | Verbosity (default `INFO`). |
+
+### Found a false positive?
+
+Every run writes a `review-<timestamp>.txt` checklist alongside the preview-links script. Delete
+the lines for files that are actually fine, leaving only the wrong ones, then:
+
+```sh
+orientation-correct-revert logs/review-<timestamp>.txt
+```
+
+This restores each listed file from its backup and adds it to a persistent ignore list, so
+future runs never flag it again. See
+[reviewing and reverting false positives](docs/how-it-works.md#reviewing-and-reverting-false-positives)
+for the details.
 
 ### Before running
 
