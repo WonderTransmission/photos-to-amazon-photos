@@ -1,10 +1,10 @@
 import logging
 
 import numpy as np
+from conftest import marker_image
+from test_infer import FakeSession
 
 from orientation_correction import cli, ignore_list
-from tests.conftest import marker_image
-from tests.test_infer import FakeSession
 
 
 def _make_args(tmp_path, **overrides):

@@ -3,10 +3,10 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+from conftest import marker_corner, marker_image
 from PIL import Image
 
 from orientation_correction import infer
-from tests.conftest import marker_corner, marker_image
 
 _REAL_MODEL_PATH = Path(__file__).resolve().parent.parent / "models" / "best_model.onnx"
 _REAL_PHOTO_ENV = "ORIENTATION_CORRECTION_TEST_PHOTO"

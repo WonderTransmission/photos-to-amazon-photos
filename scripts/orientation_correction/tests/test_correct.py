@@ -1,8 +1,8 @@
 import pytest
+from conftest import marker_corner, marker_image
 from PIL import Image, ImageOps
 
 from orientation_correction import correct, naming
-from tests.conftest import marker_corner, marker_image
 
 RUN_TS = "20260715T120000"
 
