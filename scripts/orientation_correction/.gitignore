@@ -7,4 +7,4 @@ models/*.pth
 logs/
 
 # Persistent ignore list of confirmed false positives -- also references real filesystem paths.
-/ignore-list.txt
+/ignore-list.txt*

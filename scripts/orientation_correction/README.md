@@ -33,7 +33,9 @@ orientation-correct /path/to/staged/photos
 ```
 
 Once you've spot-checked the results (see [preview links](docs/how-it-works.md#preview-links) in
-how-it-works.md), actually apply the corrections:
+how-it-works.md — each Preview.app window opens on a divider page naming its category and
+directory, so it's obvious what you're looking at even across many subdirectories), actually
+apply the corrections:
 
 ```sh
 orientation-correct /path/to/staged/photos --apply

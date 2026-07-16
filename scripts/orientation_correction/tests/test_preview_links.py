@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from orientation_correction import preview_links
 
 
@@ -10,7 +12,11 @@ def test_write_preview_links_groups_by_directory(tmp_path):
 
     output = tmp_path / "preview-links.sh"
     preview_links.write_preview_links(
-        output, corrected=corrected, would_correct=[], low_confidence=[]
+        output,
+        corrected=corrected,
+        would_correct=[],
+        low_confidence=[],
+        divider_dir=tmp_path / "dividers",
     )
 
     text = output.read_text()
@@ -31,6 +37,7 @@ def test_write_preview_links_labels_each_section(tmp_path):
         corrected=[d / "a.jpg"],
         would_correct=[d / "b.jpg"],
         low_confidence=[d / "c.jpg"],
+        divider_dir=tmp_path / "dividers",
     )
 
     text = output.read_text()
@@ -41,9 +48,60 @@ def test_write_preview_links_labels_each_section(tmp_path):
 
 def test_write_preview_links_placeholder_when_nothing_flagged(tmp_path):
     output = tmp_path / "preview-links.sh"
-    preview_links.write_preview_links(output, corrected=[], would_correct=[], low_confidence=[])
+    preview_links.write_preview_links(
+        output,
+        corrected=[],
+        would_correct=[],
+        low_confidence=[],
+        divider_dir=tmp_path / "dividers",
+    )
 
     assert "Nothing flagged this run" in output.read_text()
+    assert not (tmp_path / "dividers").exists()  # nothing to divide, nothing written
+
+
+def test_write_preview_links_opens_a_divider_pdf_first_in_each_group(tmp_path):
+    dir_a = tmp_path / "dirA"
+    dir_b = tmp_path / "dirB"
+    dir_a.mkdir()
+    dir_b.mkdir()
+    divider_dir = tmp_path / "dividers"
+
+    output = tmp_path / "preview-links.sh"
+    preview_links.write_preview_links(
+        output,
+        corrected=[dir_a / "a.jpg"],
+        would_correct=[dir_b / "b.jpg"],
+        low_confidence=[],
+        divider_dir=divider_dir,
+    )
+
+    dividers = sorted(divider_dir.glob("*.pdf"))
+    assert len(dividers) == 2  # one per (category, directory) group
+
+    for line in output.read_text().splitlines():
+        if line.startswith("open -a preview"):
+            # the divider must be the FIRST path passed to `open`, so it's the first thing
+            # Preview.app shows for that group
+            first_arg = line.split('"')[1]
+            assert first_arg.endswith(".pdf")
+            assert Path(first_arg).exists()
+
+
+def test_write_preview_links_divider_indices_are_unique_across_sections(tmp_path):
+    d = tmp_path
+    divider_dir = tmp_path / "dividers"
+    preview_links.write_preview_links(
+        tmp_path / "preview-links.sh",
+        corrected=[d / "a.jpg"],
+        would_correct=[d / "b.jpg"],
+        low_confidence=[d / "c.jpg"],
+        divider_dir=divider_dir,
+    )
+
+    dividers = sorted(divider_dir.glob("*.pdf"))
+    assert len(dividers) == 3
+    assert len({p.name for p in dividers}) == 3
 
 
 def test_write_review_checklist_lists_corrected_and_would_correct(tmp_path):

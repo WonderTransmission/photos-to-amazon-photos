@@ -156,6 +156,29 @@ Run it (`bash logs/preview-links-<timestamp>.sh`) to pop open Preview.app on eve
 directory by directory, so you can eyeball whether the correction (or the flag) makes sense
 before trusting a large batch.
 
+### Divider pages
+
+A run over an archive with many subdirectories opens many separate Preview.app windows in quick
+succession -- across three possible categories, per directory -- and it's easy to lose track of
+which window is showing which category for which directory. To make that unambiguous, the
+*first* file passed to each `open -a preview` command is a small one-page PDF (`divider.py`,
+built with Pillow alone -- no new dependency, since Pillow can write PDFs even though it can't
+read them back) stating the category and the full directory path in large text, e.g.:
+
+```
+ORIENTATION REVIEW
+
+Would be corrected (dry-run)
+
+/Volumes/ExternalDrive/staging/photos/2003/02
+
+52 file(s)
+```
+
+These are written to `--log-dir/dividers-<run_timestamp>/` (one PDF per category+directory
+group, never inside the photo directory itself) and are pure review scaffolding -- nothing to
+clean up before re-enabling Amazon Photos Backup, since they never touch the staged tree.
+
 ## Reviewing and reverting false positives
 
 Every run also writes a `review-<run_timestamp>.txt` checklist next to the preview-links script
