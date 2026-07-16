@@ -70,6 +70,10 @@ for the details.
 
 - **Pause Amazon Photos Backup** on any folder you're about to correct — see the
   [caveat in how-it-works.md](docs/how-it-works.md#a-note-on-the-amazon-photos-backup-workflow).
+- **On macOS Tahoe (26.x)**, set System Settings → Desktop & Dock → Windows → *Prefer tabs when
+  opening documents* to *Always* — otherwise the preview-links script's divider pages open in
+  their own separate windows instead of alongside the photos they're labeling. See
+  [the Tahoe note in how-it-works.md](docs/how-it-works.md#macos-tahoe-one-more-setting-needed-for-this-to-actually-work).
 - Try a small subdirectory with `--apply` first, run the generated preview-links script, and
   confirm the corrections look right before scaling up to a full archive.
 

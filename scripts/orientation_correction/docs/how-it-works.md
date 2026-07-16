@@ -185,6 +185,22 @@ These are written to `--log-dir/dividers-<run_timestamp>/` (one image per catego
 group, never inside the photo directory itself) and are pure review scaffolding -- nothing to
 clean up before re-enabling Amazon Photos Backup, since they never touch the staged tree.
 
+### macOS Tahoe: one more setting needed for this to actually work
+
+On macOS Tahoe (26.x), matching the divider's file type to the photos (see above) isn't quite
+enough by itself -- Preview.app also needs to be told to combine multiple documents passed on one
+`open` command line into a single tabbed window, rather than opening each as its own window. This
+is a one-time, system-wide setting, not something this tool can set for you:
+
+1. Open **System Settings**.
+2. Click **Desktop & Dock**.
+3. Scroll down to the **Windows** section.
+4. Set **Prefer tabs when opening documents** to **Always**.
+
+Without this, even same-format images can still end up in separate windows/tabs per file on
+Tahoe, defeating the point of the divider entirely. This has only been confirmed necessary on
+Tahoe; earlier macOS versions may not require it.
+
 ## Reviewing and reverting false positives
 
 Every run also writes a `review-<run_timestamp>.txt` checklist next to the preview-links script
