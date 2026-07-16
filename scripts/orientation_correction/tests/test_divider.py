@@ -5,21 +5,25 @@ from PIL import Image, ImageDraw
 from orientation_correction import divider
 
 
-def test_write_divider_creates_a_valid_pdf(tmp_path):
-    output = tmp_path / "divider.pdf"
+def test_write_divider_creates_a_valid_png(tmp_path):
+    output = tmp_path / "divider.png"
 
     divider.write_divider(
         output, category="Corrected", directory=Path("/photos/2003/02"), file_count=52
     )
 
     assert output.exists()
-    # Pillow can *write* PDFs but has no PDF decoder to read them back with, so Image.open()
-    # isn't available here -- checking the standard PDF magic header is the right-altitude check.
-    assert output.read_bytes().startswith(b"%PDF-")
+    # A plain image, not a PDF, is deliberate: Preview.app treats a PDF as a structurally
+    # different document from a batch of images (even passed on the same `open` command line),
+    # so it always opens it in a separate window. A PNG is the same "kind" as the photos that
+    # follow it, so Preview merges it into the same multi-image browsing window instead.
+    with Image.open(output) as img:
+        assert img.format == "PNG"
+        assert img.size == divider._PAGE_SIZE
 
 
 def test_write_divider_creates_parent_directories(tmp_path):
-    output = tmp_path / "nested" / "dividers" / "divider-001.pdf"
+    output = tmp_path / "nested" / "dividers" / "divider-001.png"
 
     divider.write_divider(output, category="Corrected", directory=Path("/a/b"), file_count=1)
 

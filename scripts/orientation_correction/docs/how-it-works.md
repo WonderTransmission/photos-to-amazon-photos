@@ -161,9 +161,9 @@ before trusting a large batch.
 A run over an archive with many subdirectories opens many separate Preview.app windows in quick
 succession -- across three possible categories, per directory -- and it's easy to lose track of
 which window is showing which category for which directory. To make that unambiguous, the
-*first* file passed to each `open -a preview` command is a small one-page PDF (`divider.py`,
-built with Pillow alone -- no new dependency, since Pillow can write PDFs even though it can't
-read them back) stating the category and the full directory path in large text, e.g.:
+*first* file passed to each `open -a preview` command is a small divider image (`divider.py`,
+built with Pillow alone -- no new dependency) stating the category and the full directory path
+in large text, e.g.:
 
 ```
 ORIENTATION REVIEW
@@ -175,7 +175,13 @@ Would be corrected (dry-run)
 52 file(s)
 ```
 
-These are written to `--log-dir/dividers-<run_timestamp>/` (one PDF per category+directory
+It's written as a **PNG, deliberately not a PDF**: Preview.app treats a PDF as a structurally
+different kind of document from a batch of images -- even when passed on the same `open`
+command line, it opens in its own separate window rather than joining the multi-image browsing
+session, which defeats the point. A PNG is the same "kind" as the JPEGs/HEICs that follow it, so
+Preview merges it into that same window as the very first thumbnail.
+
+These are written to `--log-dir/dividers-<run_timestamp>/` (one image per category+directory
 group, never inside the photo directory itself) and are pure review scaffolding -- nothing to
 clean up before re-enabling Amazon Photos Backup, since they never touch the staged tree.
 

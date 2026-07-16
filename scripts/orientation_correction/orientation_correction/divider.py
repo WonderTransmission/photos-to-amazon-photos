@@ -1,7 +1,9 @@
-"""Generates a simple divider page (a one-page PDF, via Pillow -- no extra dependency) announcing
-a preview-links group's category and directory. Preview.app shows it as the first thumbnail in
-that group's window, so flipping through many categories/subdirectories doesn't leave you
-guessing which images belong to which. See docs/how-it-works.md.
+"""Generates a simple divider page (a PNG, via Pillow -- no extra dependency) announcing a
+preview-links group's category and directory. Written as a plain image rather than a PDF
+specifically so Preview.app treats it as just another image and merges it into the same
+multi-image browsing window as the photos that follow, instead of opening it in a separate PDF
+viewer window (PDF is a structurally different document type to Preview.app, even when passed on
+the same `open` command line as a batch of images). See docs/how-it-works.md.
 """
 
 from pathlib import Path
@@ -81,4 +83,4 @@ def write_divider(output_path: Path, *, category: str, directory: Path, file_cou
     draw.text((_MARGIN, y), f"{file_count} file(s)", font=count_font, fill="black")
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    img.save(output_path, "PDF")
+    img.save(output_path, "PNG")

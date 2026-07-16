@@ -60,7 +60,7 @@ def test_write_preview_links_placeholder_when_nothing_flagged(tmp_path):
     assert not (tmp_path / "dividers").exists()  # nothing to divide, nothing written
 
 
-def test_write_preview_links_opens_a_divider_pdf_first_in_each_group(tmp_path):
+def test_write_preview_links_opens_a_divider_image_first_in_each_group(tmp_path):
     dir_a = tmp_path / "dirA"
     dir_b = tmp_path / "dirB"
     dir_a.mkdir()
@@ -76,7 +76,7 @@ def test_write_preview_links_opens_a_divider_pdf_first_in_each_group(tmp_path):
         divider_dir=divider_dir,
     )
 
-    dividers = sorted(divider_dir.glob("*.pdf"))
+    dividers = sorted(divider_dir.glob("*.png"))
     assert len(dividers) == 2  # one per (category, directory) group
 
     for line in output.read_text().splitlines():
@@ -84,7 +84,7 @@ def test_write_preview_links_opens_a_divider_pdf_first_in_each_group(tmp_path):
             # the divider must be the FIRST path passed to `open`, so it's the first thing
             # Preview.app shows for that group
             first_arg = line.split('"')[1]
-            assert first_arg.endswith(".pdf")
+            assert first_arg.endswith(".png")
             assert Path(first_arg).exists()
 
 
@@ -99,7 +99,7 @@ def test_write_preview_links_divider_indices_are_unique_across_sections(tmp_path
         divider_dir=divider_dir,
     )
 
-    dividers = sorted(divider_dir.glob("*.pdf"))
+    dividers = sorted(divider_dir.glob("*.png"))
     assert len(dividers) == 3
     assert len({p.name for p in dividers}) == 3
 
