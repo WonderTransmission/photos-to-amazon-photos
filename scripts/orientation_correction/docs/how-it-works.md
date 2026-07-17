@@ -99,8 +99,30 @@ For each image predicted as needing correction (and above `--min-confidence`, se
 3. EXIF metadata (`DateTimeOriginal`, GPS, camera make/model, etc.) is preserved, but the
    `Orientation` tag is stripped -- it's already been baked into the pixels by step 2's
    `exif_transpose`, so leaving a stale tag behind would make a viewer double-rotate the result.
+   See [EXIF write failures](#exif-write-failures) for the one case where EXIF isn't preserved.
 4. JPEG is re-encoded at `--jpeg-quality` (default 95); PNG is re-saved losslessly; HEIC is
    re-encoded at `--heif-quality` (default 90) via `pillow-heif`.
+
+### EXIF write failures
+
+Some real-world EXIF blocks can't be losslessly round-tripped by Pillow. Observed in practice on
+a photo from an older Sanyo camera: `struct.error: 'L' format requires 0 <= number <=
+4294967295` -- Pillow writes EXIF tags of type LONG (unsigned 32-bit) with `struct.pack("L",
+...)`, and this specific tag ended up with a value outside that range when Pillow tried to
+re-serialize the IFD (most likely the `ExifOffset` sub-IFD pointer, whose value is computed
+internally by Pillow's writer based on the new file's layout, not something this tool sets). This
+is a Pillow round-trip limitation on particular EXIF structures, not something under this tool's
+control, and not practical to fix by handling that one tag specially -- there's no guarantee it's
+always the same tag across different cameras' quirks.
+
+Since `struct.error` isn't an `OSError`, it wasn't caught by `correct.py`'s existing fallback for
+color-mode save failures (e.g. a palette PNG that can't be written in its source mode, which
+retries as RGB), so this used to abort the whole file's correction and roll it back. Getting
+the orientation right matters more than preserving every EXIF tag, so `correct.py` now catches
+this specific failure and retries the save with EXIF dropped entirely, rather than losing the
+correction over unrelated metadata. The file still ends up correctly rotated; it just loses its
+EXIF metadata (capture date, GPS, camera info) in this one edge case. A warning is logged when
+this happens, so it's visible in the run log and distinguishable from a silent success.
 
 ### Crash safety
 
@@ -153,6 +175,7 @@ logs/
     ├── orientation-correction.log
     ├── preview-links-would-correct.sh    <- only the categories with something flagged
     ├── review.txt                        <- only written when something was flagged
+    ├── error_filenames.txt               <- only written when something failed
     └── dividers/                         <- divider images, further separated into their own subdirectory
         ├── divider-001.png
         └── divider-002.png
@@ -266,12 +289,18 @@ move of the file -- the same limitation the main `photos-to-amazon-photos` tool'
 
 ## Logging
 
-Dual stdout + timestamped file (`logs/orientation-correction-<timestamp>.log`), so a run's
-progress survives even if the terminal session is lost. Progress is logged at 5% milestones
-(same pattern as the main tool's `stager.py`), so output stays roughly constant-length regardless
-of how many images are being processed. Per-file errors (a corrupt or unreadable image, a failed
-write) are logged and counted but never abort the run -- one bad file shouldn't cost you the rest
-of a multi-thousand-photo batch.
+Dual stdout + file (`logs/<run_timestamp>/orientation-correction.log`), so a run's progress
+survives even if the terminal session is lost. Progress is logged at 5% milestones (same pattern
+as the main tool's `stager.py`), so output stays roughly constant-length regardless of how many
+images are being processed. Per-file errors (a corrupt or unreadable image, a failed write) are
+logged and counted but never abort the run -- one bad file shouldn't cost you the rest of a
+multi-thousand-photo batch.
+
+Every failed file's path (from either failure source: couldn't even be loaded for inference, or
+loaded fine but failed during correction) is also collected into that run's
+`error_filenames.txt`, one path per line -- not written at all if nothing failed. Meant for
+picking failures out of a large run without scrolling the full log by hand; cross-reference a
+path against the log for the specific error message.
 
 ## A note on the Amazon Photos Backup workflow
 
@@ -291,3 +320,6 @@ turning Backup on/back on.
   byte-identical in compression artifacts to a lossless rotation -- mitigated by keeping the
   `.orig.*` backup and defaulting to a high quality (95).
 - See [Crash safety](#crash-safety) for the narrow residual crash window between the two renames.
+- See [EXIF write failures](#exif-write-failures) for the rare case (seen with a specific older
+  camera's EXIF structure) where a corrected file loses its EXIF metadata rather than the whole
+  correction failing.

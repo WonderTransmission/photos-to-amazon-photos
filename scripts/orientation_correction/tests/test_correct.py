@@ -1,3 +1,5 @@
+import struct
+
 import pytest
 from conftest import marker_corner, marker_image
 from PIL import Image, ImageOps
@@ -117,6 +119,76 @@ def test_correct_image_rolls_back_on_write_failure(tmp_path, monkeypatch):
     assert correct.already_corrected(path) is False
     tmp_marker = path.with_name(f".{path.name}.orientation_tmp")
     assert not tmp_marker.exists()
+
+
+def test_save_drops_exif_and_retries_after_a_struct_error(tmp_path, monkeypatch):
+    """Some real-world EXIF blocks (seen from an older Sanyo camera) contain a tag Pillow can't
+    losslessly re-serialize -- a struct.error, not an OSError, so it needs its own fallback
+    distinct from the mode-conversion retry above. Simulated here via monkeypatching, since it
+    depends on a specific malformed EXIF structure that isn't practical to construct by hand."""
+    path = tmp_path / "a.jpg"
+    marker_image(60, 30, "top-left").save(path, format="JPEG", quality=95)
+    dest = tmp_path / "out.jpg"
+
+    real_save = Image.Image.save
+    calls = []
+
+    def flaky_save(self, fp, **kwargs):
+        calls.append(kwargs)
+        if "exif" in kwargs:
+            raise struct.error("'L' format requires 0 <= number <= 4294967295")
+        return real_save(self, fp, **kwargs)
+
+    monkeypatch.setattr(Image.Image, "save", flaky_save)
+
+    with Image.open(path) as img:
+        correct._save(img, dest, "JPEG", b"fake exif bytes", 95, 90)
+
+    assert dest.exists()
+    assert len(calls) == 2
+    assert "exif" in calls[0]
+    assert "exif" not in calls[1]
+
+
+def test_save_reraises_struct_error_when_no_exif_was_involved(tmp_path, monkeypatch):
+    """If a struct.error happens for some other reason (not the EXIF fallback's business),
+    don't silently swallow it -- only retry when dropping EXIF is actually a plausible fix."""
+    path = tmp_path / "a.jpg"
+    marker_image(60, 30, "top-left").save(path, format="JPEG", quality=95)
+    dest = tmp_path / "out.jpg"
+
+    def always_fails(self, fp, **kwargs):
+        raise struct.error("unrelated failure")
+
+    monkeypatch.setattr(Image.Image, "save", always_fails)
+
+    with Image.open(path) as img, pytest.raises(struct.error):
+        correct._save(img, dest, "JPEG", None, 95, 90)
+
+
+def test_correct_image_succeeds_without_exif_after_a_struct_error(tmp_path, monkeypatch):
+    """End-to-end: a struct.error while embedding EXIF must not cost the whole correction --
+    the file still ends up rotated, just without its original EXIF."""
+    path = tmp_path / "a.jpg"
+    img = marker_image(60, 30, "top-left")
+    exif = img.getexif()
+    exif[0x9003] = "2003:02:04 12:00:00"
+    img.save(path, format="JPEG", exif=exif, quality=95)
+
+    real_save = Image.Image.save
+
+    def flaky_save(self, fp, **kwargs):
+        if "exif" in kwargs:
+            raise struct.error("'L' format requires 0 <= number <= 4294967295")
+        return real_save(self, fp, **kwargs)
+
+    monkeypatch.setattr(Image.Image, "save", flaky_save)
+
+    correct.correct_image(path, Image.Transpose.ROTATE_270, RUN_TS)
+
+    with Image.open(path) as im:
+        assert marker_corner(im) == "top-right"  # correction still applied
+        assert im.getexif().get(0x9003) is None  # EXIF lost, not fabricated
 
 
 def test_correct_image_unsupported_extension_touches_nothing(tmp_path):

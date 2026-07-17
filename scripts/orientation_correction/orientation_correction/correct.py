@@ -7,6 +7,7 @@ for why the encode happens before anything on disk is touched.
 
 import logging
 import os
+import struct
 from pathlib import Path
 
 from PIL import Image, ImageOps
@@ -75,6 +76,22 @@ def _save(
 
     try:
         img.save(dest, **kwargs)
+    except struct.error as exc:
+        # Some real-world EXIF blocks (seen from an older Sanyo camera) have a tag Pillow can't
+        # losslessly re-serialize -- e.g. a LONG-typed field ending up negative at write time,
+        # which struct.pack("L", ...) rejects. This is a Pillow round-trip limitation on
+        # particular EXIF structures, not something under our control, and struct.error isn't an
+        # OSError so it wasn't caught by the fallback below. Getting the orientation right
+        # matters more than preserving every EXIF tag, so retry without embedding EXIF at all
+        # rather than losing the whole file's correction over unrelated metadata.
+        if "exif" in kwargs:
+            log.warning(
+                "Dropping EXIF for %s after a struct-pack error re-embedding it (%s)", dest, exc
+            )
+            kwargs.pop("exif")
+            img.save(dest, **kwargs)
+        else:
+            raise
     except OSError:
         # A handful of source modes (e.g. palette PNGs) aren't writable in every target format --
         # fall back to RGB rather than failing the whole file over a color-mode mismatch.

@@ -169,12 +169,25 @@ def _format_summary(counts: Counter, dry_run: bool) -> str:
     return "\n".join(lines)
 
 
+def _write_error_filenames(run_dir: Path, error_paths: list[Path]) -> Path | None:
+    """One path per line for every file that failed this run (load or correction failure alike),
+    so a large run's handful of failures don't have to be picked out of the full log by hand.
+    Returns None (and writes nothing) if nothing failed."""
+    if not error_paths:
+        return None
+    output_path = run_dir / "error_filenames.txt"
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text("\n".join(str(p) for p in error_paths) + "\n")
+    return output_path
+
+
 def run(args: argparse.Namespace, log: logging.Logger, run_timestamp: str) -> Counter:
     run_dir = args.log_dir / run_timestamp
     counts: Counter = Counter()
     corrected_paths: list[Path] = []
     would_correct_paths: list[Path] = []
     low_confidence_paths: list[Path] = []
+    error_paths: list[Path] = []
 
     all_images = discover.discover_images(args.input_dir)
     counts[DISCOVERED] = len(all_images)
@@ -216,6 +229,7 @@ def run(args: argparse.Namespace, log: logging.Logger, run_timestamp: str) -> Co
         for path, exc in errors:
             log.error("Failed to process %s: %s", path, exc)
             counts[ERROR] += 1
+            error_paths.append(path)
 
         for pred in predictions:
             if not pred.needs_correction:
@@ -266,6 +280,7 @@ def run(args: argparse.Namespace, log: logging.Logger, run_timestamp: str) -> Co
             except Exception as exc:  # noqa: BLE001 - one bad file must not abort the run
                 log.error("Failed to correct %s: %s", pred.path, exc)
                 counts[ERROR] += 1
+                error_paths.append(pred.path)
 
         processed += len(batch)
         percent = (processed * 100) // total
@@ -302,6 +317,10 @@ def run(args: argparse.Namespace, log: logging.Logger, run_timestamp: str) -> Co
             "see docs/how-it-works.md#reviewing-and-reverting-false-positives",
             review_path,
         )
+
+    error_filenames_path = _write_error_filenames(run_dir, error_paths)
+    if error_filenames_path:
+        log.info("Failed file paths written to: %s", error_filenames_path)
 
     return counts
 
