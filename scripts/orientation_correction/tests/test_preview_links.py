@@ -2,8 +2,6 @@ from pathlib import Path
 
 from orientation_correction import preview_links
 
-RUN_TS = "20260717T120000"
-
 
 def test_write_preview_links_groups_by_directory(tmp_path):
     dir_a = tmp_path / "dirA"
@@ -14,7 +12,6 @@ def test_write_preview_links_groups_by_directory(tmp_path):
 
     written = preview_links.write_preview_links(
         tmp_path,
-        run_timestamp=RUN_TS,
         corrected=corrected,
         would_correct=[],
         low_confidence=[],
@@ -23,7 +20,7 @@ def test_write_preview_links_groups_by_directory(tmp_path):
 
     assert len(written) == 1
     output = written[0]
-    assert output.name == f"preview-links-corrected-{RUN_TS}.sh"
+    assert output.name == "preview-links-corrected.sh"
     text = output.read_text()
     assert f'export DIR="{dir_a}"' in text
     assert f'export DIR="{dir_b}"' in text
@@ -36,7 +33,6 @@ def test_write_preview_links_writes_a_separate_file_per_category(tmp_path):
     d = tmp_path
     written = preview_links.write_preview_links(
         tmp_path,
-        run_timestamp=RUN_TS,
         corrected=[d / "a.jpg"],
         would_correct=[d / "b.jpg"],
         low_confidence=[d / "c.jpg"],
@@ -44,15 +40,15 @@ def test_write_preview_links_writes_a_separate_file_per_category(tmp_path):
     )
 
     assert {p.name for p in written} == {
-        f"preview-links-corrected-{RUN_TS}.sh",
-        f"preview-links-would-correct-{RUN_TS}.sh",
-        f"preview-links-low-confidence-{RUN_TS}.sh",
+        "preview-links-corrected.sh",
+        "preview-links-would-correct.sh",
+        "preview-links-low-confidence.sh",
     }
 
     by_name = {p.name: p.read_text() for p in written}
-    corrected_text = by_name[f"preview-links-corrected-{RUN_TS}.sh"]
-    would_correct_text = by_name[f"preview-links-would-correct-{RUN_TS}.sh"]
-    low_confidence_text = by_name[f"preview-links-low-confidence-{RUN_TS}.sh"]
+    corrected_text = by_name["preview-links-corrected.sh"]
+    would_correct_text = by_name["preview-links-would-correct.sh"]
+    low_confidence_text = by_name["preview-links-low-confidence.sh"]
 
     # each file must only reference its own category's file -- no bleed-through between them
     assert '"$DIR/a.jpg"' in corrected_text
@@ -69,7 +65,6 @@ def test_write_preview_links_writes_a_separate_file_per_category(tmp_path):
 def test_write_preview_links_writes_nothing_when_nothing_flagged(tmp_path):
     written = preview_links.write_preview_links(
         tmp_path,
-        run_timestamp=RUN_TS,
         corrected=[],
         would_correct=[],
         low_confidence=[],
@@ -84,7 +79,6 @@ def test_write_preview_links_writes_nothing_when_nothing_flagged(tmp_path):
 def test_write_preview_links_omits_files_for_empty_categories(tmp_path):
     written = preview_links.write_preview_links(
         tmp_path,
-        run_timestamp=RUN_TS,
         corrected=[tmp_path / "a.jpg"],
         would_correct=[],
         low_confidence=[],
@@ -92,7 +86,7 @@ def test_write_preview_links_omits_files_for_empty_categories(tmp_path):
     )
 
     assert len(written) == 1
-    assert written[0].name == f"preview-links-corrected-{RUN_TS}.sh"
+    assert written[0].name == "preview-links-corrected.sh"
 
 
 def test_write_preview_links_opens_a_divider_image_first_in_each_group(tmp_path):
@@ -104,7 +98,6 @@ def test_write_preview_links_opens_a_divider_image_first_in_each_group(tmp_path)
 
     written = preview_links.write_preview_links(
         tmp_path,
-        run_timestamp=RUN_TS,
         corrected=[dir_a / "a.jpg"],
         would_correct=[dir_b / "b.jpg"],
         low_confidence=[],
@@ -129,7 +122,6 @@ def test_write_preview_links_divider_indices_are_unique_across_categories(tmp_pa
     divider_dir = tmp_path / "dividers"
     preview_links.write_preview_links(
         tmp_path,
-        run_timestamp=RUN_TS,
         corrected=[d / "a.jpg"],
         would_correct=[d / "b.jpg"],
         low_confidence=[d / "c.jpg"],

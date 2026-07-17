@@ -111,8 +111,9 @@ def build_parser() -> argparse.ArgumentParser:
         "--log-dir",
         type=Path,
         default=_DEFAULT_LOG_DIR,
-        help=f"Where to write the run log and preview-links file (default: {_DEFAULT_LOG_DIR}, "
-        "relative to the current directory).",
+        help=f"Root directory for run output (default: {_DEFAULT_LOG_DIR}, relative to the "
+        "current directory). Each run creates its own timestamped subdirectory here, holding "
+        "the run log, preview-links scripts, review checklist, and a dividers/ subdirectory.",
     )
     parser.add_argument(
         "--log-level",
@@ -123,14 +124,14 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _setup_logging(log_dir: Path, log_level: str, run_timestamp: str) -> Path:
-    """Log to both stdout and a timestamped file, so a run's progress survives even if the
-    terminal session is lost before it can be checked. Mirrors photos_to_amazon_photos.cli's
-    approach: manages the root logger's own-named handlers directly so repeated calls (tests, or
-    a second run in one process) get a fresh file handler without disturbing anything else on
-    the root logger."""
-    log_dir.mkdir(parents=True, exist_ok=True)
-    log_file = log_dir / f"orientation-correction-{run_timestamp}.log"
+def _setup_logging(run_dir: Path, log_level: str) -> Path:
+    """Log to both stdout and a file in this run's own timestamped directory, so a run's progress
+    survives even if the terminal session is lost before it can be checked. Mirrors
+    photos_to_amazon_photos.cli's approach: manages the root logger's own-named handlers directly
+    so repeated calls (tests, or a second run in one process) get a fresh file handler without
+    disturbing anything else on the root logger."""
+    run_dir.mkdir(parents=True, exist_ok=True)
+    log_file = run_dir / "orientation-correction.log"
     formatter = logging.Formatter("%(asctime)s %(levelname)s %(message)s")
 
     stream_handler = logging.StreamHandler(sys.stdout)
@@ -168,7 +169,8 @@ def _format_summary(counts: Counter, dry_run: bool) -> str:
     return "\n".join(lines)
 
 
-def run(args: argparse.Namespace, log: logging.Logger) -> Counter:
+def run(args: argparse.Namespace, log: logging.Logger, run_timestamp: str) -> Counter:
+    run_dir = args.log_dir / run_timestamp
     counts: Counter = Counter()
     corrected_paths: list[Path] = []
     would_correct_paths: list[Path] = []
@@ -203,7 +205,6 @@ def run(args: argparse.Namespace, log: logging.Logger) -> Counter:
         return counts
 
     session = infer.load_onnx_session(args.model_path)
-    run_timestamp = datetime.now().strftime(naming.BACKUP_TIMESTAMP_FORMAT)
 
     total = len(to_infer)
     processed = 0
@@ -273,10 +274,9 @@ def run(args: argparse.Namespace, log: logging.Logger) -> Counter:
             last_logged_percent = milestone
             log.info("Progress: %d%% (%d/%d images)", milestone, processed, total)
 
-    divider_dir = args.log_dir / f"dividers-{run_timestamp}"
+    divider_dir = run_dir / "dividers"
     preview_links_paths = preview_links.write_preview_links(
-        args.log_dir,
-        run_timestamp=run_timestamp,
+        run_dir,
         corrected=corrected_paths,
         would_correct=would_correct_paths,
         low_confidence=low_confidence_paths,
@@ -288,7 +288,7 @@ def run(args: argparse.Namespace, log: logging.Logger) -> Counter:
     else:
         log.info("Nothing flagged this run -- no preview-links scripts written.")
 
-    review_path = args.log_dir / f"review-{run_timestamp}.txt"
+    review_path = run_dir / "review.txt"
     wrote_review = preview_links.write_review_checklist(
         review_path,
         corrected=corrected_paths,
@@ -311,7 +311,8 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     run_timestamp = datetime.now().strftime(naming.BACKUP_TIMESTAMP_FORMAT)
-    log_file = _setup_logging(args.log_dir, args.log_level, run_timestamp)
+    run_dir = args.log_dir / run_timestamp
+    log_file = _setup_logging(run_dir, args.log_level)
     log = logging.getLogger("orientation_correction")
     log.info("Logging to: %s", log_file)
     log.info("Mode: %s", "APPLY (files will be modified)" if args.apply else "DRY RUN")
@@ -329,7 +330,7 @@ def main(argv: list[str] | None = None) -> int:
     Image.MAX_IMAGE_PIXELS = None  # staged archive photos are trusted, not untrusted uploads
 
     try:
-        counts = run(args, log)
+        counts = run(args, log, run_timestamp)
     except Exception as e:
         log.error("Run failed: %s", e)
         return 1

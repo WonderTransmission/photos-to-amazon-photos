@@ -63,7 +63,6 @@ _CATEGORIES = [
 def write_preview_links(
     output_dir: Path,
     *,
-    run_timestamp: str,
     corrected: list[Path],
     would_correct: list[Path],
     low_confidence: list[Path],
@@ -75,6 +74,9 @@ def write_preview_links(
     files actually rotated this run (--apply). would_correct: files that would be rotated if
     re-run with --apply (dry-run candidates). low_confidence: predicted as needing rotation but
     below --min-confidence, so left untouched either way -- flagged for a human to decide.
+
+    output_dir is expected to be a run's own timestamped directory (see cli.py), so filenames
+    here don't need their own timestamp suffix.
 
     divider_dir: where to write one small divider image per (category, directory) group --
     opened as the first image in each Preview.app window/thumbnail strip, so it's obvious which
@@ -108,7 +110,8 @@ def write_preview_links(
         if not wrote_section:
             continue
 
-        output_path = output_dir / f"preview-links-{slug}-{run_timestamp}.sh"
+        output_dir.mkdir(parents=True, exist_ok=True)
+        output_path = output_dir / f"preview-links-{slug}.sh"
         output_path.write_text("\n".join(lines) + "\n")
         output_path.chmod(0o755)
         written.append(output_path)
@@ -144,5 +147,6 @@ def write_review_checklist(
         "",
         *(str(p) for p in flagged),
     ]
+    output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text("\n".join(lines) + "\n")
     return True

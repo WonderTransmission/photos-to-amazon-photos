@@ -141,26 +141,42 @@ review, rather than auto-corrected. In practice this doesn't fully eliminate fal
 some wrong corrections come through confidently -- which is what
 [reviewing and reverting false positives](#reviewing-and-reverting-false-positives) is for.
 
+## Run output layout
+
+Every run gets its own timestamped directory under `--log-dir` (default `logs/`, next to this
+doc) -- everything that run produces lives there and nowhere else, so nothing from one run ever
+mixes with another's, and cleaning up old runs is just deleting old directories:
+
+```
+logs/
+└── 20260717T122153/                      <- one directory per run
+    ├── orientation-correction.log
+    ├── preview-links-would-correct.sh    <- only the categories with something flagged
+    ├── review.txt                        <- only written when something was flagged
+    └── dividers/                         <- divider images, further separated into their own subdirectory
+        ├── divider-001.png
+        └── divider-002.png
+```
+
 ## Preview links
 
-Every run (dry-run or `--apply`) writes one `preview-links-<category>-<run_timestamp>.sh` script
-per category that actually has something flagged, to `--log-dir` (default `logs/`, next to this
-doc) -- a separate file rather than one combined script, so each category opens as its own
-Preview.app session instead of being interleaved into one long scroll:
+Every run (dry-run or `--apply`) writes one `preview-links-<category>.sh` script per category
+that actually has something flagged, into that run's directory -- a separate file rather than
+one combined script, so each category opens as its own Preview.app session instead of being
+interleaved into one long scroll:
 
-- **`preview-links-corrected-<timestamp>.sh`** -- files actually rotated this run (`--apply`
-  only).
-- **`preview-links-would-correct-<timestamp>.sh`** -- what a dry run found; re-run with
-  `--apply` once these look right.
-- **`preview-links-low-confidence-<timestamp>.sh`** -- predicted as needing rotation but below
+- **`preview-links-corrected.sh`** -- files actually rotated this run (`--apply` only).
+- **`preview-links-would-correct.sh`** -- what a dry run found; re-run with `--apply` once these
+  look right.
+- **`preview-links-low-confidence.sh`** -- predicted as needing rotation but below
   `--min-confidence`; not touched either way, flagged for a human decision.
 
 A category with nothing flagged gets no file at all (a run only ever produces one or two of
 these -- `corrected` and `would-correct` can't both have anything in the same run, since a run is
 either `--apply` or dry-run, never both). Run whichever ones exist (e.g.
-`bash logs/preview-links-corrected-<timestamp>.sh`) to pop open Preview.app on everything in that
-category, directory by directory, so you can eyeball whether the correction (or the flag) makes
-sense before trusting a large batch.
+`bash logs/<run_timestamp>/preview-links-corrected.sh`) to pop open Preview.app on everything in
+that category, directory by directory, so you can eyeball whether the correction (or the flag)
+makes sense before trusting a large batch.
 
 ### Divider pages
 
@@ -187,9 +203,10 @@ command line, it opens in its own separate window rather than joining the multi-
 session, which defeats the point. A PNG is the same "kind" as the JPEGs/HEICs that follow it, so
 Preview merges it into that same window as the very first thumbnail.
 
-These are written to `--log-dir/dividers-<run_timestamp>/` (one image per category+directory
-group, never inside the photo directory itself) and are pure review scaffolding -- nothing to
-clean up before re-enabling Amazon Photos Backup, since they never touch the staged tree.
+These are written to that run's `dividers/` subdirectory (see [run output layout](#run-output-layout)
+above; one image per category+directory group, never inside the photo directory itself) and are
+pure review scaffolding -- nothing to clean up before re-enabling Amazon Photos Backup, since
+they never touch the staged tree.
 
 ### macOS Tahoe: one more setting needed for this to actually work
 
@@ -209,10 +226,10 @@ Tahoe; earlier macOS versions may not require it.
 
 ## Reviewing and reverting false positives
 
-Every run also writes a `review-<run_timestamp>.txt` checklist next to the preview-links scripts
-(only when something was actually flagged) -- one absolute path per line, covering everything in
-the **corrected** and **would-correct** scripts above (not **low-confidence**, since those were
-never touched either way -- there's nothing to revert).
+Every run also writes a `review.txt` checklist in that run's directory, next to the preview-links
+scripts (only when something was actually flagged) -- one absolute path per line, covering
+everything in the **corrected** and **would-correct** scripts above (not **low-confidence**,
+since those were never touched either way -- there's nothing to revert).
 
 The workflow:
 
@@ -222,9 +239,9 @@ The workflow:
    majority -- there's usually only a handful of lines left.)
 3. Run the command the checklist file itself tells you to (also shown here):
    ```sh
-   python -m orientation_correction.revert logs/review-<timestamp>.txt
+   python -m orientation_correction.revert logs/<run_timestamp>/review.txt
    ```
-   or, if installed: `orientation-correct-revert logs/review-<timestamp>.txt`
+   or, if installed: `orientation-correct-revert logs/<run_timestamp>/review.txt`
 
 For each remaining path, this:
 
