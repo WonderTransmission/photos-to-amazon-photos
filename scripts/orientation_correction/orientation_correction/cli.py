@@ -273,16 +273,20 @@ def run(args: argparse.Namespace, log: logging.Logger) -> Counter:
             last_logged_percent = milestone
             log.info("Progress: %d%% (%d/%d images)", milestone, processed, total)
 
-    preview_links_path = args.log_dir / f"preview-links-{run_timestamp}.sh"
     divider_dir = args.log_dir / f"dividers-{run_timestamp}"
-    preview_links.write_preview_links(
-        preview_links_path,
+    preview_links_paths = preview_links.write_preview_links(
+        args.log_dir,
+        run_timestamp=run_timestamp,
         corrected=corrected_paths,
         would_correct=would_correct_paths,
         low_confidence=low_confidence_paths,
         divider_dir=divider_dir,
     )
-    log.info("Preview-links script written to: %s", preview_links_path)
+    if preview_links_paths:
+        for path in preview_links_paths:
+            log.info("Preview-links script written to: %s", path)
+    else:
+        log.info("Nothing flagged this run -- no preview-links scripts written.")
 
     review_path = args.log_dir / f"review-{run_timestamp}.txt"
     wrote_review = preview_links.write_review_checklist(

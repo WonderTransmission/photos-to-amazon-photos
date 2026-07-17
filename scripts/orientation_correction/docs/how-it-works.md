@@ -17,7 +17,7 @@ four buckets: 0°, 90°, 180°, or 270° of rotation relative to upright. It rep
 on its own validation set (COCO + a couple of Kaggle datasets + a personal photo collection --
 see that repo's README for details). That number is **not** a guarantee for this archive's mix
 of old scanned prints and consumer digital-camera photos, which is why this tool defaults to
-dry-run and always produces a [preview-links](#preview-links) file for a manual pass.
+dry-run and always produces [preview-links](#preview-links) scripts for a manual pass.
 
 The model file itself (`models/best_model.onnx`, ~80MB) is not committed here -- see
 [`models/README.md`](../models/README.md) for how to get it. `--model-path` overrides the
@@ -136,25 +136,31 @@ before even running inference on it. This means:
 Default `0.0` (off) -- matches the simple argmax behavior the model's own predict scripts use,
 which is what the original research session validated manually. If spot-checks turn up false
 positives, raising this (e.g. `--min-confidence 0.8`) causes borderline predictions to be left
-untouched and listed in a separate "low confidence" section of the preview-links file for manual
+untouched and listed in the separate `preview-links-low-confidence-*.sh` script for manual
 review, rather than auto-corrected. In practice this doesn't fully eliminate false positives --
 some wrong corrections come through confidently -- which is what
 [reviewing and reverting false positives](#reviewing-and-reverting-false-positives) is for.
 
 ## Preview links
 
-Every run (dry-run or `--apply`) writes a `preview-links-<run_timestamp>.sh` script to
-`--log-dir` (default `logs/`, next to this doc). It groups flagged files by their containing
-directory and writes an `open -a preview` command for each group, in three labeled sections:
+Every run (dry-run or `--apply`) writes one `preview-links-<category>-<run_timestamp>.sh` script
+per category that actually has something flagged, to `--log-dir` (default `logs/`, next to this
+doc) -- a separate file rather than one combined script, so each category opens as its own
+Preview.app session instead of being interleaved into one long scroll:
 
-- **Corrected** -- files actually rotated this run (`--apply` only).
-- **Would be corrected** -- what a dry run found; re-run with `--apply` once these look right.
-- **Low confidence** -- predicted as needing rotation but below `--min-confidence`; not touched
-  either way, flagged for a human decision.
+- **`preview-links-corrected-<timestamp>.sh`** -- files actually rotated this run (`--apply`
+  only).
+- **`preview-links-would-correct-<timestamp>.sh`** -- what a dry run found; re-run with
+  `--apply` once these look right.
+- **`preview-links-low-confidence-<timestamp>.sh`** -- predicted as needing rotation but below
+  `--min-confidence`; not touched either way, flagged for a human decision.
 
-Run it (`bash logs/preview-links-<timestamp>.sh`) to pop open Preview.app on everything flagged,
-directory by directory, so you can eyeball whether the correction (or the flag) makes sense
-before trusting a large batch.
+A category with nothing flagged gets no file at all (a run only ever produces one or two of
+these -- `corrected` and `would-correct` can't both have anything in the same run, since a run is
+either `--apply` or dry-run, never both). Run whichever ones exist (e.g.
+`bash logs/preview-links-corrected-<timestamp>.sh`) to pop open Preview.app on everything in that
+category, directory by directory, so you can eyeball whether the correction (or the flag) makes
+sense before trusting a large batch.
 
 ### Divider pages
 
@@ -203,14 +209,14 @@ Tahoe; earlier macOS versions may not require it.
 
 ## Reviewing and reverting false positives
 
-Every run also writes a `review-<run_timestamp>.txt` checklist next to the preview-links script
+Every run also writes a `review-<run_timestamp>.txt` checklist next to the preview-links scripts
 (only when something was actually flagged) -- one absolute path per line, covering everything in
-the **Corrected** and **Would be corrected** sections above (not **Low confidence**, since those
-were never touched either way -- there's nothing to revert).
+the **corrected** and **would-correct** scripts above (not **low-confidence**, since those were
+never touched either way -- there's nothing to revert).
 
 The workflow:
 
-1. Open the preview-links script to eyeball the results in Preview.app.
+1. Open the relevant preview-links script(s) to eyeball the results in Preview.app.
 2. In the review checklist, **delete the line for every file that's actually fine.** Leave only
    the false positives. (In practice this is fast, since correctly-classified files are the
    majority -- there's usually only a handful of lines left.)
@@ -257,8 +263,8 @@ app's Backup feature watches `target_root/photos/` and uploads anything new in i
 file-type filtering. Backup files this tool creates (`*.orig.*`) would get swept up and uploaded
 as junk if Backup is watching the folder while this tool runs. **Run this tool before enabling
 (or while temporarily disabling) Amazon Photos Backup** on a directory, verify the results via
-the preview-links file, and clean up (or otherwise resolve) the `.orig.*` backups before turning
-Backup on/back on.
+the preview-links scripts, and clean up (or otherwise resolve) the `.orig.*` backups before
+turning Backup on/back on.
 
 ## Known limitations
 

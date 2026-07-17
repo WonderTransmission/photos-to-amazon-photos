@@ -25,8 +25,8 @@ You also need the ONNX model file, which isn't committed here (~80MB binary) —
 
 ## Usage
 
-Dry run first — reports what it would do and writes a preview-links file, without touching any
-files:
+Dry run first — reports what it would do and writes a preview-links script per category, without
+touching any files:
 
 ```sh
 orientation-correct /path/to/staged/photos
@@ -48,13 +48,13 @@ Full option list: `orientation-correct --help`. The notable ones:
 | `--apply` | Actually back up and correct files. Without it, dry-run only. |
 | `--min-confidence FLOAT` | Below this model confidence, a flagged image is left untouched and listed for manual review instead of auto-corrected (default `0.0`, off). |
 | `--model-path PATH` | Override the default `models/best_model.onnx` location. |
-| `--log-dir PATH` | Where the run log, preview-links, and review checklist are written (default `logs/`). |
+| `--log-dir PATH` | Where the run log, preview-links scripts, and review checklist are written (default `logs/`). |
 | `--ignore-list PATH` | Persistent list of confirmed false positives to always skip (default `ignore-list.txt`). |
 | `--log-level {DEBUG,INFO,WARNING,ERROR}` | Verbosity (default `INFO`). |
 
 ### Found a false positive?
 
-Every run writes a `review-<timestamp>.txt` checklist alongside the preview-links script. Delete
+Every run writes a `review-<timestamp>.txt` checklist alongside the preview-links scripts. Delete
 the lines for files that are actually fine, leaving only the wrong ones, then:
 
 ```sh
@@ -71,10 +71,10 @@ for the details.
 - **Pause Amazon Photos Backup** on any folder you're about to correct — see the
   [caveat in how-it-works.md](docs/how-it-works.md#a-note-on-the-amazon-photos-backup-workflow).
 - **On macOS Tahoe (26.x)**, set System Settings → Desktop & Dock → Windows → *Prefer tabs when
-  opening documents* to *Always* — otherwise the preview-links script's divider pages open in
-  their own separate windows instead of alongside the photos they're labeling. See
+  opening documents* to *Always* — otherwise each preview-links script's divider page opens in
+  its own separate window instead of alongside the photos it's labeling. See
   [the Tahoe note in how-it-works.md](docs/how-it-works.md#macos-tahoe-one-more-setting-needed-for-this-to-actually-work).
-- Try a small subdirectory with `--apply` first, run the generated preview-links script, and
+- Try a small subdirectory with `--apply` first, run the generated preview-links script(s), and
   confirm the corrections look right before scaling up to a full archive.
 
 ## Development

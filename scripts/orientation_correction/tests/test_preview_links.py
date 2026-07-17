@@ -2,6 +2,8 @@ from pathlib import Path
 
 from orientation_correction import preview_links
 
+RUN_TS = "20260717T120000"
+
 
 def test_write_preview_links_groups_by_directory(tmp_path):
     dir_a = tmp_path / "dirA"
@@ -10,54 +12,87 @@ def test_write_preview_links_groups_by_directory(tmp_path):
     dir_b.mkdir()
     corrected = [dir_a / "a.jpg", dir_a / "b.jpg", dir_b / "c.jpg"]
 
-    output = tmp_path / "preview-links.sh"
-    preview_links.write_preview_links(
-        output,
+    written = preview_links.write_preview_links(
+        tmp_path,
+        run_timestamp=RUN_TS,
         corrected=corrected,
         would_correct=[],
         low_confidence=[],
         divider_dir=tmp_path / "dividers",
     )
 
+    assert len(written) == 1
+    output = written[0]
+    assert output.name == f"preview-links-corrected-{RUN_TS}.sh"
     text = output.read_text()
     assert f'export DIR="{dir_a}"' in text
     assert f'export DIR="{dir_b}"' in text
     assert '"$DIR/a.jpg" "$DIR/b.jpg"' in text
     assert '"$DIR/c.jpg"' in text
-    assert "Corrected" in text
-    assert "Would be corrected" not in text  # empty section omitted
     assert output.stat().st_mode & 0o111  # executable
 
 
-def test_write_preview_links_labels_each_section(tmp_path):
+def test_write_preview_links_writes_a_separate_file_per_category(tmp_path):
     d = tmp_path
-    output = tmp_path / "preview-links.sh"
-    preview_links.write_preview_links(
-        output,
+    written = preview_links.write_preview_links(
+        tmp_path,
+        run_timestamp=RUN_TS,
         corrected=[d / "a.jpg"],
         would_correct=[d / "b.jpg"],
         low_confidence=[d / "c.jpg"],
         divider_dir=tmp_path / "dividers",
     )
 
-    text = output.read_text()
-    assert "Corrected" in text
-    assert "Would be corrected" in text
-    assert "Low confidence" in text
+    assert {p.name for p in written} == {
+        f"preview-links-corrected-{RUN_TS}.sh",
+        f"preview-links-would-correct-{RUN_TS}.sh",
+        f"preview-links-low-confidence-{RUN_TS}.sh",
+    }
+
+    by_name = {p.name: p.read_text() for p in written}
+    corrected_text = by_name[f"preview-links-corrected-{RUN_TS}.sh"]
+    would_correct_text = by_name[f"preview-links-would-correct-{RUN_TS}.sh"]
+    low_confidence_text = by_name[f"preview-links-low-confidence-{RUN_TS}.sh"]
+
+    # each file must only reference its own category's file -- no bleed-through between them
+    assert '"$DIR/a.jpg"' in corrected_text
+    assert '"$DIR/b.jpg"' not in corrected_text
+    assert '"$DIR/c.jpg"' not in corrected_text
+
+    assert '"$DIR/b.jpg"' in would_correct_text
+    assert '"$DIR/a.jpg"' not in would_correct_text
+
+    assert '"$DIR/c.jpg"' in low_confidence_text
+    assert '"$DIR/a.jpg"' not in low_confidence_text
 
 
-def test_write_preview_links_placeholder_when_nothing_flagged(tmp_path):
-    output = tmp_path / "preview-links.sh"
-    preview_links.write_preview_links(
-        output,
+def test_write_preview_links_writes_nothing_when_nothing_flagged(tmp_path):
+    written = preview_links.write_preview_links(
+        tmp_path,
+        run_timestamp=RUN_TS,
         corrected=[],
         would_correct=[],
         low_confidence=[],
         divider_dir=tmp_path / "dividers",
     )
 
-    assert "Nothing flagged this run" in output.read_text()
+    assert written == []
+    assert list(tmp_path.glob("preview-links-*.sh")) == []
     assert not (tmp_path / "dividers").exists()  # nothing to divide, nothing written
+
+
+def test_write_preview_links_omits_files_for_empty_categories(tmp_path):
+    written = preview_links.write_preview_links(
+        tmp_path,
+        run_timestamp=RUN_TS,
+        corrected=[tmp_path / "a.jpg"],
+        would_correct=[],
+        low_confidence=[],
+        divider_dir=tmp_path / "dividers",
+    )
+
+    assert len(written) == 1
+    assert written[0].name == f"preview-links-corrected-{RUN_TS}.sh"
 
 
 def test_write_preview_links_opens_a_divider_image_first_in_each_group(tmp_path):
@@ -67,9 +102,9 @@ def test_write_preview_links_opens_a_divider_image_first_in_each_group(tmp_path)
     dir_b.mkdir()
     divider_dir = tmp_path / "dividers"
 
-    output = tmp_path / "preview-links.sh"
-    preview_links.write_preview_links(
-        output,
+    written = preview_links.write_preview_links(
+        tmp_path,
+        run_timestamp=RUN_TS,
         corrected=[dir_a / "a.jpg"],
         would_correct=[dir_b / "b.jpg"],
         low_confidence=[],
@@ -79,20 +114,22 @@ def test_write_preview_links_opens_a_divider_image_first_in_each_group(tmp_path)
     dividers = sorted(divider_dir.glob("*.png"))
     assert len(dividers) == 2  # one per (category, directory) group
 
-    for line in output.read_text().splitlines():
-        if line.startswith("open -a preview"):
-            # the divider must be the FIRST path passed to `open`, so it's the first thing
-            # Preview.app shows for that group
-            first_arg = line.split('"')[1]
-            assert first_arg.endswith(".png")
-            assert Path(first_arg).exists()
+    for output in written:
+        for line in output.read_text().splitlines():
+            if line.startswith("open -a preview"):
+                # the divider must be the FIRST path passed to `open`, so it's the first thing
+                # Preview.app shows for that group
+                first_arg = line.split('"')[1]
+                assert first_arg.endswith(".png")
+                assert Path(first_arg).exists()
 
 
-def test_write_preview_links_divider_indices_are_unique_across_sections(tmp_path):
+def test_write_preview_links_divider_indices_are_unique_across_categories(tmp_path):
     d = tmp_path
     divider_dir = tmp_path / "dividers"
     preview_links.write_preview_links(
-        tmp_path / "preview-links.sh",
+        tmp_path,
+        run_timestamp=RUN_TS,
         corrected=[d / "a.jpg"],
         would_correct=[d / "b.jpg"],
         low_confidence=[d / "c.jpg"],
