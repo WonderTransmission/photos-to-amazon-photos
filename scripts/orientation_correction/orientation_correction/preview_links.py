@@ -40,7 +40,7 @@ def _write_section(
         lines.append(f'export DIR="{directory}"')
         quoted = " ".join(f'"$DIR/{name}"' for name in filenames)
         lines.append(f'open -a preview "{divider_path}" {quoted}')
-        lines.append('sleep 1;')
+        lines.append('sleep 2;')
     lines.append("")
     return True
 
