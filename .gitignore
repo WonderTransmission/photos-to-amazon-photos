@@ -22,3 +22,6 @@ venv/
 /output/
 /target/
 tracking.csv
+
+# Superseded by scripts/image_quality_detector/ -- kept locally for reference, never committed.
+/scripts/tmp_blur_detector/

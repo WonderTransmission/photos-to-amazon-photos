@@ -1,0 +1,38 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "image-quality-detector"
+version = "0.1.0"
+description = "Finds totally overexposed, totally underexposed, and extremely blurry photos in a staged photo directory (via CleanVision) and quarantines them for review. See README.md."
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.14"
+dependencies = [
+    "cleanvision>=0.3",
+    "pillow>=11.0",
+    "pillow-heif>=0.18",
+]
+
+[project.scripts]
+image-quality-detect = "image_quality_detector.cli:main"
+image-quality-detect-revert = "image_quality_detector.revert:main"
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "ruff",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["image_quality_detector"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]
