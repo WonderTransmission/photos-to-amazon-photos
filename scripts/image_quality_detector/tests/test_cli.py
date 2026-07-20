@@ -17,11 +17,13 @@ def _make_args(tmp_path, **overrides):
     return args
 
 
-def _fake_analyze(mapping, errors=()):
+def _fake_analyze(mapping, errors=(), duplicate_sets=None):
     """mapping: {filename: (category, ...)}. Files not present in mapping get an empty match
-    set (no issue). Files listed in `errors` get reported as decode failures instead."""
+    set (no issue). Files listed in `errors` get reported as decode failures instead.
+    duplicate_sets: {category: [[path, path, ...], ...]}, passed through unchanged -- lets tests
+    exercise cli.run's keep-first-quarantine-rest reduction without a real CleanVision call."""
 
-    def fake(paths, issue_types=None, *, n_jobs=1):
+    def fake(paths, checks=(), *, n_jobs=1):
         results = []
         failed = []
         for path in paths:
@@ -29,7 +31,7 @@ def _fake_analyze(mapping, errors=()):
                 failed.append((path, ValueError("simulated decode failure")))
                 continue
             results.append(QualityResult(path=path, matched=frozenset(mapping.get(path.name, ()))))
-        return results, failed
+        return results, (duplicate_sets or {}), failed
 
     return fake
 
@@ -247,3 +249,94 @@ def test_run_writes_no_error_filenames_file_when_nothing_failed(tmp_path, monkey
     cli.run(args, log, RUN_TS)
 
     assert not (args.log_dir / RUN_TS / "error_filenames.txt").exists()
+
+
+def test_default_checks_is_blurry_dark_light():
+    parser = cli.build_parser()
+    args = parser.parse_args(["some_dir"])
+    assert args.checks == ("blurry", "dark", "light")
+
+
+def test_checks_flag_parses_comma_separated_list():
+    parser = cli.build_parser()
+    args = parser.parse_args(["some_dir", "--checks", "exact_duplicates,near_duplicates"])
+    assert args.checks == ("exact_duplicates", "near_duplicates")
+
+
+def test_checks_flag_rejects_unknown_check():
+    parser = cli.build_parser()
+    try:
+        parser.parse_args(["some_dir", "--checks", "bogus"])
+        raise AssertionError("expected SystemExit")
+    except SystemExit as exc:
+        assert exc.code == 2
+
+
+def test_run_passes_checks_through_to_analyze(tmp_path, monkeypatch):
+    a = tmp_path / "a.jpg"
+    a.write_bytes(b"x")
+
+    seen = {}
+
+    def fake(paths, checks=(), *, n_jobs=1):
+        seen["checks"] = checks
+        return [], {}, []
+
+    monkeypatch.setattr(cli.analyze, "analyze_images", fake)
+
+    args = _make_args(tmp_path, checks=("exact_duplicates",))
+    log = logging.getLogger("test_run_passes_checks")
+
+    cli.run(args, log, RUN_TS)
+
+    assert seen["checks"] == ("exact_duplicates",)
+
+
+def test_run_duplicate_set_keeps_first_and_quarantines_rest(tmp_path, monkeypatch):
+    a = tmp_path / "a.jpg"
+    b = tmp_path / "b.jpg"
+    a.write_bytes(b"x")
+    b.write_bytes(b"x")
+
+    monkeypatch.setattr(
+        cli.analyze,
+        "analyze_images",
+        _fake_analyze({}, duplicate_sets={"exact_duplicates": [[b, a]]}),
+    )
+
+    args = _make_args(tmp_path, apply=True, checks=("exact_duplicates",))
+    log = logging.getLogger("test_run_duplicate_keep_first")
+
+    counts, category_counts = cli.run(args, log, RUN_TS)
+
+    # sorted([b, a]) -> [a, b], so a is kept in place and b is the one quarantined
+    assert a.exists()
+    assert not b.exists()
+    dest = tmp_path / "_quality_review" / "exact_duplicates" / "b.jpg"
+    assert dest.exists()
+    assert counts[cli.QUARANTINED] == 1
+    assert counts[cli.NO_ISSUES] == 1  # a itself isn't flagged
+    assert category_counts["exact_duplicates"] == 1
+
+
+def test_run_duplicate_and_quality_categories_combine_on_the_same_file(tmp_path, monkeypatch):
+    a = tmp_path / "a.jpg"
+    b = tmp_path / "b.jpg"
+    a.write_bytes(b"x")
+    b.write_bytes(b"x")
+
+    # b is both flagged blurry on its own AND is the non-kept half of a duplicate pair
+    monkeypatch.setattr(
+        cli.analyze,
+        "analyze_images",
+        _fake_analyze({"b.jpg": ("blurry",)}, duplicate_sets={"exact_duplicates": [[a, b]]}),
+    )
+
+    args = _make_args(tmp_path, apply=True, checks=("blurry", "exact_duplicates"))
+    log = logging.getLogger("test_run_duplicate_and_quality_combine")
+
+    counts, category_counts = cli.run(args, log, RUN_TS)
+
+    dest = tmp_path / "_quality_review" / "blurry+exact_duplicates" / "b.jpg"
+    assert dest.exists()
+    assert category_counts["blurry+exact_duplicates"] == 1

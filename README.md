@@ -140,8 +140,8 @@ Standalone tools that operate on staged output, under [`scripts/`](scripts):
 - [`orientation_correction`](scripts/orientation_correction/README.md) — detects and corrects
   sideways/upside-down photos in a staged directory.
 - [`image_quality_detector`](scripts/image_quality_detector/README.md) — finds totally
-  overexposed, totally underexposed, and extremely blurry photos in a staged directory and
-  quarantines them for review.
+  overexposed, totally underexposed, and extremely blurry photos in a staged directory (plus,
+  opt-in via `--checks`, exact/near-duplicate photos) and quarantines them for review.
 
 ## Development
 

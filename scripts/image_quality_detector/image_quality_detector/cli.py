@@ -1,10 +1,11 @@
 """Argument parsing and run orchestration.
 
-Scans a directory for images, flags totally overexposed / totally underexposed / extremely
-blurry photos via CleanVision, and either previews what would be flagged (dry-run, the default)
-or quarantines the flagged files into a `_quality_review/<category>/` subfolder alongside each
-one's original directory (--apply). Mirrors orientation_correction's scan / dry-run / --apply /
-preview-links shape, minus the parts specific to actually correcting pixels.
+Scans a directory for images and, via CleanVision, flags totally overexposed / totally
+underexposed / extremely blurry photos and (optionally, see --checks) exact/near-duplicate
+files. Either previews what would be flagged (dry-run, the default) or quarantines the flagged
+files into a `_quality_review/<category>/` subfolder alongside each one's original directory
+(--apply). Mirrors orientation_correction's scan / dry-run / --apply / preview-links shape,
+minus the parts specific to actually correcting pixels.
 """
 
 import argparse
@@ -42,14 +43,30 @@ _OUTCOME_ORDER = [
 _OWN_HANDLER_NAMES = ("image_quality_detector.stream", "image_quality_detector.file")
 
 
+def _parse_checks(value: str) -> tuple[str, ...]:
+    """Parses --checks' comma-separated value into a validated tuple, so both CLI parsing and
+    argparse's own error reporting handle bad input -- tests can just set args.checks directly
+    to a tuple, same as any other arg override."""
+    checks = tuple(c.strip() for c in value.split(",") if c.strip())
+    if not checks:
+        raise argparse.ArgumentTypeError("--checks must not be empty")
+    invalid = [c for c in checks if c not in analyze.ALL_CHECKS]
+    if invalid:
+        raise argparse.ArgumentTypeError(
+            f"unknown check(s): {', '.join(invalid)} -- choose from "
+            f"{', '.join(analyze.ALL_CHECKS)}"
+        )
+    return checks
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="image-quality-detect",
         description=(
-            "Finds totally overexposed, totally underexposed, and extremely blurry photos "
-            "under a directory and quarantines them into a _quality_review/<category>/ "
-            "subfolder alongside each one's original location. Dry-run by default -- pass "
-            "--apply to actually move files."
+            "Finds totally overexposed, totally underexposed, extremely blurry, and (if "
+            "requested via --checks) duplicate photos under a directory and quarantines them "
+            "into a _quality_review/<category>/ subfolder alongside each one's original "
+            "location. Dry-run by default -- pass --apply to actually move files."
         ),
     )
     parser.add_argument(
@@ -62,6 +79,18 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Actually quarantine flagged files. Without this, only logs and preview-links "
         "are produced -- no files are moved.",
+    )
+    parser.add_argument(
+        "--checks",
+        type=_parse_checks,
+        default=_parse_checks(",".join(analyze.DEFAULT_CHECKS)),
+        help=(
+            "Comma-separated list of checks to run, from: "
+            f"{', '.join(analyze.ALL_CHECKS)} (default: {','.join(analyze.DEFAULT_CHECKS)}). "
+            "exact_duplicates/near_duplicates each flag a whole set of matching files rather "
+            "than one offending file -- --apply keeps the first file in each set (sorted path "
+            "order) and quarantines the rest."
+        ),
     )
     parser.add_argument(
         "--workers",
@@ -182,37 +211,57 @@ def run(
         log.info("Nothing left to check.")
         return counts, category_counts
 
-    results, load_errors = analyze.analyze_images(to_check, n_jobs=args.workers)
+    results, duplicate_sets, load_errors = analyze.analyze_images(
+        to_check, checks=args.checks, n_jobs=args.workers
+    )
 
     for path, exc in load_errors:
         log.error("Failed to analyze %s: %s", path, exc)
         counts[ERROR] += 1
         error_paths.append(path)
 
+    # Per-image checks (blurry/dark/light) start from each QualityResult's own matched set.
+    # Duplicate checks flag a whole group at once -- fold those in by keeping the first path
+    # (sorted order) in each group and adding the category to every other member's set, so a
+    # duplicate group is reduced to "one survivor, the rest flagged" using the same per-path
+    # category_key/quarantine/preview machinery as everything else.
+    categories_by_path: dict[Path, set[str]] = {r.path: set(r.matched) for r in results}
+    kept_for: dict[Path, Path] = {}
+    for dup_category, groups in duplicate_sets.items():
+        for group in groups:
+            keep, *rest = sorted(group)
+            for path in rest:
+                categories_by_path.setdefault(path, set()).add(dup_category)
+                kept_for[path] = keep
+
     for result in results:
-        if not result.has_issue:
+        path = result.path
+        matched = categories_by_path.get(path, set())
+        if not matched:
             counts[NO_ISSUES] += 1
             continue
 
-        category_counts[result.category_key] += 1
+        category_key = "+".join(sorted(matched))
+        category_counts[category_key] += 1
+        dup_note = f" -- kept {kept_for[path]}" if path in kept_for else ""
 
         if not args.apply:
             counts[WOULD_QUARANTINE] += 1
-            flagged_paths.append(result.path)
-            by_category[result.category_key].append(result.path)
-            log.debug("Would quarantine %s (%s)", result.path, result.category_key)
+            flagged_paths.append(path)
+            by_category[category_key].append(path)
+            log.debug("Would quarantine %s (%s)%s", path, category_key, dup_note)
             continue
 
         try:
-            dest = quarantine.quarantine_image(result.path, result.category_key)
+            dest = quarantine.quarantine_image(path, category_key)
             counts[QUARANTINED] += 1
-            flagged_paths.append(result.path)
-            by_category[result.category_key].append(dest)
-            log.debug("Quarantined %s -> %s", result.path, dest)
+            flagged_paths.append(path)
+            by_category[category_key].append(dest)
+            log.debug("Quarantined %s -> %s%s", path, dest, dup_note)
         except Exception as exc:  # noqa: BLE001 - one bad file must not abort the run
-            log.error("Failed to quarantine %s: %s", result.path, exc)
+            log.error("Failed to quarantine %s: %s", path, exc)
             counts[ERROR] += 1
-            error_paths.append(result.path)
+            error_paths.append(path)
 
     divider_dir = run_dir / "dividers"
     mode = "quarantined" if args.apply else "would-quarantine"
