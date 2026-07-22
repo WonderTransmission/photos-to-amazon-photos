@@ -212,6 +212,28 @@ def test_write_duplicate_set_previews_pauses_between_sets_but_not_after_the_last
     assert open_lines_idx[0] < read_lines_idx[0] < open_lines_idx[1]
 
 
+def test_write_duplicate_set_previews_pause_prompt_shows_progress_count(tmp_path):
+    written = preview_links.write_duplicate_set_previews(
+        tmp_path,
+        mode="would-quarantine",
+        duplicate_groups={
+            "exact_duplicates": [
+                {"kept": tmp_path / f"k{n}.jpg", "removed": [tmp_path / f"r{n}.jpg"]}
+                for n in range(8)
+            ]
+        },
+        divider_dir=tmp_path / "dividers",
+    )
+
+    read_lines = [
+        line for line in written[0].read_text().splitlines() if line.startswith("read -p")
+    ]
+
+    assert len(read_lines) == 7  # one between each pair of the 8 sets, none after the last
+    assert "(2 of 8)" in read_lines[0]
+    assert "(8 of 8)" in read_lines[-1]
+
+
 def test_write_duplicate_set_previews_writes_a_separate_file_per_category(tmp_path):
     written = preview_links.write_duplicate_set_previews(
         tmp_path,

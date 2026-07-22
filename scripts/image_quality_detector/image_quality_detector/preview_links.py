@@ -191,8 +191,11 @@ def write_duplicate_set_previews(
             )
             lines.append(f"open -a preview {quoted}")
             if i < total_sets:
+                next_num = i + 1
                 lines.append(
-                    'read -p "Press Enter to review the next duplicate set (Ctrl-C to stop)..."'
+                    "read -p "
+                    f'"Press Enter to review the next duplicate set ({next_num} of {total_sets}) '
+                    '(Ctrl-C to stop)..."'
                 )
             lines.append("")
 
