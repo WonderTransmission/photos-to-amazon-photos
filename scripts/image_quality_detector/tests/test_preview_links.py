@@ -163,3 +163,115 @@ def test_write_review_checklist_dedupes(tmp_path):
     preview_links.write_review_checklist(output, flagged=[a, a], revert_command="cmd")
 
     assert output.read_text().count(str(a)) == 1
+
+
+def test_write_duplicate_set_previews_opens_kept_and_removed_together(tmp_path):
+    kept = tmp_path / "a.jpg"
+    removed = tmp_path / "b.jpg"
+
+    written = preview_links.write_duplicate_set_previews(
+        tmp_path,
+        mode="would-quarantine",
+        duplicate_groups={"exact_duplicates": [{"kept": kept, "removed": [removed]}]},
+        divider_dir=tmp_path / "dividers",
+    )
+
+    assert len(written) == 1
+    output = written[0]
+    assert output.name == "preview-links-exact_duplicates-would-quarantine.sh"
+    text = output.read_text()
+
+    # both the kept file and the flagged one appear in the same `open` call
+    open_lines = [line for line in text.splitlines() if line.startswith("open -a preview")]
+    assert len(open_lines) == 1
+    assert str(kept) in open_lines[0]
+    assert str(removed) in open_lines[0]
+    assert output.stat().st_mode & 0o111  # executable
+
+
+def test_write_duplicate_set_previews_pauses_between_sets_but_not_after_the_last(tmp_path):
+    written = preview_links.write_duplicate_set_previews(
+        tmp_path,
+        mode="would-quarantine",
+        duplicate_groups={
+            "exact_duplicates": [
+                {"kept": tmp_path / "a.jpg", "removed": [tmp_path / "b.jpg"]},
+                {"kept": tmp_path / "c.jpg", "removed": [tmp_path / "d.jpg"]},
+            ]
+        },
+        divider_dir=tmp_path / "dividers",
+    )
+
+    lines = written[0].read_text().splitlines()
+    open_lines_idx = [i for i, line in enumerate(lines) if line.startswith("open -a preview")]
+    read_lines_idx = [i for i, line in enumerate(lines) if line.startswith("read -p")]
+
+    assert len(open_lines_idx) == 2
+    # exactly one pause, sitting between the two `open` calls -- none after the final set
+    assert len(read_lines_idx) == 1
+    assert open_lines_idx[0] < read_lines_idx[0] < open_lines_idx[1]
+
+
+def test_write_duplicate_set_previews_writes_a_separate_file_per_category(tmp_path):
+    written = preview_links.write_duplicate_set_previews(
+        tmp_path,
+        mode="quarantined",
+        duplicate_groups={
+            "exact_duplicates": [{"kept": tmp_path / "a.jpg", "removed": [tmp_path / "b.jpg"]}],
+            "near_duplicates": [{"kept": tmp_path / "c.jpg", "removed": [tmp_path / "d.jpg"]}],
+        },
+        divider_dir=tmp_path / "dividers",
+    )
+
+    assert {p.name for p in written} == {
+        "preview-links-exact_duplicates-quarantined.sh",
+        "preview-links-near_duplicates-quarantined.sh",
+    }
+
+
+def test_write_duplicate_set_previews_skips_groups_with_nothing_removed(tmp_path):
+    # Shouldn't happen in practice (cli.py only creates a group entry when there's at least one
+    # non-kept member) but the writer should be robust to it regardless.
+    written = preview_links.write_duplicate_set_previews(
+        tmp_path,
+        mode="would-quarantine",
+        duplicate_groups={"exact_duplicates": [{"kept": tmp_path / "a.jpg", "removed": []}]},
+        divider_dir=tmp_path / "dividers",
+    )
+
+    assert written == []
+
+
+def test_write_duplicate_set_previews_writes_nothing_when_no_groups(tmp_path):
+    written = preview_links.write_duplicate_set_previews(
+        tmp_path,
+        mode="would-quarantine",
+        duplicate_groups={},
+        divider_dir=tmp_path / "dividers",
+    )
+
+    assert written == []
+    assert list(tmp_path.glob("preview-links-*.sh")) == []
+
+
+def test_write_duplicate_set_previews_opens_a_divider_first_in_each_set(tmp_path):
+    written = preview_links.write_duplicate_set_previews(
+        tmp_path,
+        mode="would-quarantine",
+        duplicate_groups={
+            "exact_duplicates": [
+                {"kept": tmp_path / "a.jpg", "removed": [tmp_path / "b.jpg"]},
+                {"kept": tmp_path / "c.jpg", "removed": [tmp_path / "d.jpg"]},
+            ]
+        },
+        divider_dir=tmp_path / "dividers",
+    )
+
+    dividers = sorted((tmp_path / "dividers").glob("*.png"))
+    assert len(dividers) == 2  # one per set
+
+    for line in written[0].read_text().splitlines():
+        if line.startswith("open -a preview"):
+            first_arg = line.split('"')[1]
+            assert first_arg.endswith(".png")
+            assert Path(first_arg).exists()

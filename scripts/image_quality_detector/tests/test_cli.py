@@ -340,3 +340,59 @@ def test_run_duplicate_and_quality_categories_combine_on_the_same_file(tmp_path,
     dest = tmp_path / "_quality_review" / "blurry+exact_duplicates" / "b.jpg"
     assert dest.exists()
     assert category_counts["blurry+exact_duplicates"] == 1
+
+
+def test_run_writes_a_duplicate_set_preview_not_a_flat_category_preview(tmp_path, monkeypatch):
+    a = tmp_path / "a.jpg"
+    b = tmp_path / "b.jpg"
+    a.write_bytes(b"x")
+    b.write_bytes(b"x")
+
+    monkeypatch.setattr(
+        cli.analyze,
+        "analyze_images",
+        _fake_analyze({}, duplicate_sets={"exact_duplicates": [[b, a]]}),
+    )
+
+    args = _make_args(tmp_path, checks=("exact_duplicates",))
+    log = logging.getLogger("test_run_duplicate_preview_routing")
+
+    cli.run(args, log, RUN_TS)
+
+    run_dir = args.log_dir / RUN_TS
+    script = run_dir / "preview-links-exact_duplicates-would-quarantine.sh"
+    assert script.exists()
+    text = script.read_text()
+    # the kept file (a) and the flagged one (b) show up together in the same open call, and the
+    # kept file was never quarantined
+    open_lines = [line for line in text.splitlines() if line.startswith("open -a preview")]
+    assert len(open_lines) == 1
+    assert str(a) in open_lines[0]
+    assert str(b) in open_lines[0]
+    assert a.exists()
+
+
+def test_run_duplicate_removed_files_use_quarantine_location_when_applied(tmp_path, monkeypatch):
+    a = tmp_path / "a.jpg"
+    b = tmp_path / "b.jpg"
+    a.write_bytes(b"x")
+    b.write_bytes(b"x")
+
+    monkeypatch.setattr(
+        cli.analyze,
+        "analyze_images",
+        _fake_analyze({}, duplicate_sets={"exact_duplicates": [[b, a]]}),
+    )
+
+    args = _make_args(tmp_path, apply=True, checks=("exact_duplicates",))
+    log = logging.getLogger("test_run_duplicate_preview_apply_location")
+
+    cli.run(args, log, RUN_TS)
+
+    run_dir = args.log_dir / RUN_TS
+    script = run_dir / "preview-links-exact_duplicates-quarantined.sh"
+    text = script.read_text()
+    dest = tmp_path / "_quality_review" / "exact_duplicates" / "b.jpg"
+    # the preview must point at b's *current* (quarantined) location, not its old original path
+    assert str(dest) in text
+    assert str(b) not in text

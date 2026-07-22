@@ -56,7 +56,8 @@ Full option list: `image-quality-detect --help`. The notable ones:
 ### Checks
 
 - `blurry`, `dark`, `light` — run by default. Each is a per-image check: CleanVision scores one
-  file at a time, and a flagged file is quarantined on its own.
+  file at a time, and a flagged file is quarantined on its own. Their preview-links scripts group
+  flagged files by directory, same as `orientation_correction`.
 - `exact_duplicates`, `near_duplicates` — opt in with `--checks`, e.g.
   `--checks blurry,dark,light,exact_duplicates,near_duplicates`. These flag a *set* of matching
   files, not one offending file, so there's no single file to act on until something decides
@@ -64,6 +65,27 @@ Full option list: `image-quality-detect --help`. The notable ones:
   it is, and treats every other member of that set as flagged -- so `--apply` quarantines all
   but one copy per set. A file that's simultaneously, say, blurry and the non-kept half of a
   duplicate pair goes to a combined folder like `_quality_review/blurry+exact_duplicates/`.
+
+  Their preview-links script (`preview-links-exact_duplicates-*.sh` /
+  `preview-links-near_duplicates-*.sh`) is shaped differently from the others: a duplicate *set*
+  is the natural review unit, not a directory, so each set opens together in one Preview.app
+  call -- the kept file first, then the flagged member(s) -- and the script pauses
+  (`Press Enter to review the next duplicate set...`) before moving to the next one. That's what
+  lets you actually compare a pair side by side and confirm they're really duplicates, rather
+  than scrolling through a flat list of unrelated files with no indication of which one each
+  pairs with.
+
+  CleanVision's "exact" match is a pixel hash, not a byte hash -- two files with different bytes
+  (different EXIF, different compression) but identical decoded pixels still count as an exact
+  duplicate. In practice this mostly turns up macOS Photos' own duplicate-export naming
+  (`IMG_1234.HEIC` next to `IMG_1234 1.HEIC`); if a set's preview shows genuinely different
+  photos, that's worth reporting as a CleanVision issue rather than assumed to be this tool's bug
+  -- check the two files' pixel hashes directly before concluding that.
+
+  If you'd rather have kept the file that got auto-quarantined instead of the one this tool
+  picked: revert the quarantined one (below) to restore it, then separately quarantine the one
+  that was auto-kept by hand (there's no "swap" command yet -- the kept file is never
+  automatically touched).
 
 ### Found a false positive?
 

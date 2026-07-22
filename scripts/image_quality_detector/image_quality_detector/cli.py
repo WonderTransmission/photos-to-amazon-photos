@@ -188,6 +188,7 @@ def run(
     category_counts: Counter = Counter()
     flagged_paths: list[Path] = []
     by_category: dict[str, list[Path]] = defaultdict(list)
+    duplicate_groups: dict[str, list[dict]] = defaultdict(list)
     error_paths: list[Path] = []
 
     all_images = discover.discover_images(args.input_dir)
@@ -224,16 +225,24 @@ def run(
     # Duplicate checks flag a whole group at once -- fold those in by keeping the first path
     # (sorted order) in each group and adding the category to every other member's set, so a
     # duplicate group is reduced to "one survivor, the rest flagged" using the same per-path
-    # category_key/quarantine/preview machinery as everything else.
+    # category_key/quarantine machinery as everything else. Preview-wise, a duplicate group is
+    # its own review unit (see write_duplicate_set_previews), so we also track which
+    # (category, group-index) each removed path belongs to, to fill in its current location once
+    # that's known below.
     categories_by_path: dict[Path, set[str]] = {r.path: set(r.matched) for r in results}
-    kept_for: dict[Path, Path] = {}
+    group_index_for_path: dict[tuple[str, Path], int] = {}
     for dup_category, groups in duplicate_sets.items():
         for group in groups:
             keep, *rest = sorted(group)
+            if not rest:
+                continue
+            idx = len(duplicate_groups[dup_category])
+            duplicate_groups[dup_category].append({"kept": keep, "removed": []})
             for path in rest:
                 categories_by_path.setdefault(path, set()).add(dup_category)
-                kept_for[path] = keep
+                group_index_for_path[(dup_category, path)] = idx
 
+    duplicate_category_set = set(analyze.DUPLICATE_CATEGORIES)
     for result in results:
         path = result.path
         matched = categories_by_path.get(path, set())
@@ -243,30 +252,41 @@ def run(
 
         category_key = "+".join(sorted(matched))
         category_counts[category_key] += 1
-        dup_note = f" -- kept {kept_for[path]}" if path in kept_for else ""
+        dup_categories_here = matched & duplicate_category_set
 
         if not args.apply:
             counts[WOULD_QUARANTINE] += 1
             flagged_paths.append(path)
-            by_category[category_key].append(path)
-            log.debug("Would quarantine %s (%s)%s", path, category_key, dup_note)
-            continue
+            current_location = path
+            log.debug("Would quarantine %s (%s)", path, category_key)
+        else:
+            try:
+                current_location = quarantine.quarantine_image(path, category_key)
+                counts[QUARANTINED] += 1
+                flagged_paths.append(path)
+                log.debug("Quarantined %s -> %s", path, current_location)
+            except Exception as exc:  # noqa: BLE001 - one bad file must not abort the run
+                log.error("Failed to quarantine %s: %s", path, exc)
+                counts[ERROR] += 1
+                error_paths.append(path)
+                continue
 
-        try:
-            dest = quarantine.quarantine_image(path, category_key)
-            counts[QUARANTINED] += 1
-            flagged_paths.append(path)
-            by_category[category_key].append(dest)
-            log.debug("Quarantined %s -> %s%s", path, dest, dup_note)
-        except Exception as exc:  # noqa: BLE001 - one bad file must not abort the run
-            log.error("Failed to quarantine %s: %s", path, exc)
-            counts[ERROR] += 1
-            error_paths.append(path)
+        if dup_categories_here:
+            # Reviewed via its duplicate set(s), not the flat per-category preview -- showing it
+            # again there would just repeat the same file out of context.
+            for dup_category in dup_categories_here:
+                idx = group_index_for_path[(dup_category, path)]
+                duplicate_groups[dup_category][idx]["removed"].append(current_location)
+        else:
+            by_category[category_key].append(current_location)
 
     divider_dir = run_dir / "dividers"
     mode = "quarantined" if args.apply else "would-quarantine"
     preview_link_paths = preview_links.write_preview_links(
         run_dir, mode=mode, by_category=by_category, divider_dir=divider_dir
+    )
+    preview_link_paths += preview_links.write_duplicate_set_previews(
+        run_dir, mode=mode, duplicate_groups=duplicate_groups, divider_dir=divider_dir
     )
     if preview_link_paths:
         for path in preview_link_paths:
